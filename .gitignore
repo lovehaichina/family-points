@@ -1,0 +1,9 @@
+data/
+__pycache__/
+*.pyc
+*.db
+*.db.bak*
+_archive/
+_qa/
+.env
+*.log

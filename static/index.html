@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1C1C24">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="积分乐园">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236ea87d'/%3E%3Cstop offset='1' stop-color='%234f8160'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%231C1C24'/%3E%3Cpath d='M32 10l6.4 15.6L54 32l-15.6 6.4L32 54l-6.4-15.6L10 32l15.6-6.4z' fill='url(%23g)'/%3E%3C/svg%3E">
+<title>家庭任务积分乐园</title>
+<link rel="stylesheet" href="/static/styles.css">
+<!-- v14：老浏览器（Android 11 及更早内核）兼容层，必须在 styles.css 之后加载 -->
+<link rel="stylesheet" href="/static/compat.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="logo">家</span>
+      <span id="familyName" class="family-name">我的家</span>
+      <span class="brand-sub">积分乐园</span>
+    </div>
+    <div class="identity">
+      <span id="balanceChip" class="balance-chip" hidden></span>
+      <label class="ident-label">身份</label>
+      <select id="identitySelect"></select>
+    </div>
+  </div>
+  <nav id="tabs"></nav>
+</header>
+<main id="view" class="container"></main>
+<div id="modalRoot"></div>
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

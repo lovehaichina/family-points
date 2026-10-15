@@ -1,0 +1,306 @@
+/* ============================================================
+   家庭任务积分乐园 · 老浏览器兼容层 v14-legacy
+   ------------------------------------------------------------
+   目标：Android 11 及更早的原生浏览器 / 老 WebView（Chromium < 84，
+   或基于旧内核的国产浏览器）能够正常显示与交互。
+
+   覆盖的不兼容点：
+   1. Flexbox `gap`（Chrome 84+ 才支持）→ 用 margin 模拟
+   2. `:has()` 选择器（Chrome 105+）→ 改由 JS 加 `.is-checked` 类
+   3. CSS `backdrop-filter`（老内核无效）→ 提供纯色兜底
+   4. CSS Grid 单行 `repeat()`（Chrome 57+）→ 降级为 flex 两列
+   5. `-webkit-line-clamp` 多行省略 → 降级为单行省略
+   6. `position: sticky`（Android 11 原生浏览器支持不稳定）→ 降级为 static
+   7. `inset` 简写属性（Chrome 87+）→ 已经用 top/right/bottom/left 兜底
+   8. `font-variant-numeric` / `scrollbar-width` / `accent-color`
+      （均为增强项，老内核忽略即可，无需处理）
+
+   加载顺序：本文件必须在 styles.css 之后加载。
+   注意：本层只用「老内核也能解析」的 CSS 语法，不引入任何新特性。
+   ============================================================ */
+
+/* ---------- 0. 通用兜底：用 @supports 判断 gap 支持（不支持时才启用） ----------
+   老内核不认识 @supports 时，会整块忽略——那是安全的（说明它本来也不支持 gap，
+   但同时也不支持 @supports，这种情况由下面「静态兜底类」覆盖）。*/
+
+/* ---------- 1. Flexbox gap 兜底 ----------
+   思路：老内核下 gap 无效，元素会挤在一起。用「相邻兄弟 margin」模拟间距。
+   对 flex-direction: row 用 margin-left；column 用 margin-top。 */
+
+@supports not (gap: 1px) {
+
+  /* --- .topbar-inner --- */
+  .topbar-inner > * + * { margin-left: 10px; }
+
+  /* --- .brand（横向） --- */
+  .brand > * + * { margin-left: 8px; }
+
+  /* --- .identity（横向） --- */
+  .identity > * + * { margin-left: 7px; }
+
+  /* --- #tabs（横向） --- */
+  #tabs > * + * { margin-left: 5px; }
+
+  /* --- #tabs button（横向图标+文字） --- */
+  #tabs button > * + * { margin-left: 6px; }
+
+  /* --- .section-title（横向） --- */
+  .section-title > * + * { margin-left: 7px; }
+
+  /* --- .card-head / .card-meta / .card-actions --- */
+  .card-head > * + * { margin-left: 10px; }
+  .card-meta > * + * { margin-left: 6px; }
+  .card-actions > * + * { margin-left: 8px; }
+
+  /* --- .task-row / .task-side / .task-tagline --- */
+  .task-row > * + * { margin-left: 10px; }
+  .task-side > * + * { margin-left: 7px; }
+  .task-tagline > * + * { margin-left: 5px; }
+
+  /* --- .tc-body（纵向） --- */
+  .tc-body > * + * { margin-top: 7px; }
+  .tc-row > * + * { margin-left: 11px; }
+  .tc-side > * + * { margin-top: 4px; }
+  .tc-tags > * + * { margin-left: 5px; }
+
+  /* --- .filters / .filter-row / .filter-chips --- */
+  .filter-row > * + * { margin-left: 8px; }
+  .filter-chips > * + * { margin-left: 6px; }
+
+  /* --- .evidence / .thumbs --- */
+  .evidence > * + * { margin-left: 8px; }
+  .thumbs > * + * { margin-left: 9px; }
+
+  /* --- 弹窗 --- */
+  .modal-actions > * + * { margin-left: 10px; }
+  .form-row > * + * { margin-left: 10px; }
+  .kid-checks > * + * { margin-left: 8px; }
+  .kid-check > * + * { margin-left: 6px; }
+
+  /* --- 兑换商城 --- */
+  .shop-tip > * + * { margin-left: 6px; }
+  .shop-group-head > * + * { margin-left: 9px; }
+  .cart-row > * + * { margin-left: 10px; }
+  .cart-qty > * + * { margin-left: 2px; }
+  .cart-bar > * + * { margin-left: 12px; }
+  .cart-bar-left > * + * { margin-left: 9px; }
+
+  /* --- 申请明细 / 勾选 --- */
+  .req-item > * + * { margin-left: 10px; }
+  .pick-item > * + * { margin-left: 9px; }
+  .pick-list > * + * { margin-top: 5px; }
+  .zone-actions > * + * { margin-left: 8px; }
+
+  /* --- 分页 / 筛选条 / 设置 --- */
+  .pager > * + * { margin-left: 12px; }
+  .filter-bar > * + * { margin-left: 7px; }
+  .cat-head > * + * { margin-left: 10px; }
+  .io-head > * + * { margin-left: 8px; }
+
+  /* --- 余额主卡 --- */
+  .balance-card .row > * + * { margin-left: 12px; }
+
+  /* --- 流水 --- */
+  .ledger-row > * + * { margin-left: 10px; }
+
+  /* --- 响应式：手机端微调 --- */
+  @media (max-width: 560px) {
+    .identity > * + * { margin-left: 6px; }
+    #tabs > * + * { margin-left: 4px; }
+    #tabs button > * + * { margin-left: 5px; }
+    .tc-row > * + * { margin-left: 9px; }
+    .form-row > * + * { margin-left: 0; }
+  }
+}
+
+/* ---------- 1b. 静态兜底类 ----------
+   给「不认识 @supports」但同样不支持 gap 的超老内核用。
+   由 JS 在启动时探测（见 app.js 的 legacyCompat），
+   不支持 gap 时给 <html> 加 .no-gap 类。 */
+html.no-gap .topbar-inner > * + * { margin-left: 10px; }
+html.no-gap .brand > * + * { margin-left: 8px; }
+html.no-gap .identity > * + * { margin-left: 7px; }
+html.no-gap #tabs > * + * { margin-left: 5px; }
+html.no-gap #tabs button > * + * { margin-left: 6px; }
+html.no-gap .section-title > * + * { margin-left: 7px; }
+html.no-gap .card-head > * + * { margin-left: 10px; }
+html.no-gap .card-meta > * + * { margin-left: 6px; }
+html.no-gap .card-actions > * + * { margin-left: 8px; }
+html.no-gap .task-row > * + * { margin-left: 10px; }
+html.no-gap .task-side > * + * { margin-left: 7px; }
+html.no-gap .task-tagline > * + * { margin-left: 5px; }
+html.no-gap .tc-body > * + * { margin-top: 7px; }
+html.no-gap .tc-row > * + * { margin-left: 11px; }
+html.no-gap .tc-side > * + * { margin-top: 4px; }
+html.no-gap .tc-tags > * + * { margin-left: 5px; }
+html.no-gap .filter-row > * + * { margin-left: 8px; }
+html.no-gap .filter-chips > * + * { margin-left: 6px; }
+html.no-gap .evidence > * + * { margin-left: 8px; }
+html.no-gap .thumbs > * + * { margin-left: 9px; }
+html.no-gap .modal-actions > * + * { margin-left: 10px; }
+html.no-gap .form-row > * + * { margin-left: 10px; }
+html.no-gap .kid-checks > * + * { margin-left: 8px; }
+html.no-gap .kid-check > * + * { margin-left: 6px; }
+html.no-gap .shop-tip > * + * { margin-left: 6px; }
+html.no-gap .shop-group-head > * + * { margin-left: 9px; }
+html.no-gap .cart-row > * + * { margin-left: 10px; }
+html.no-gap .cart-qty > * + * { margin-left: 2px; }
+html.no-gap .cart-bar > * + * { margin-left: 12px; }
+html.no-gap .cart-bar-left > * + * { margin-left: 9px; }
+html.no-gap .req-item > * + * { margin-left: 10px; }
+html.no-gap .pick-item > * + * { margin-left: 9px; }
+html.no-gap .pick-list > * + * { margin-top: 5px; }
+html.no-gap .zone-actions > * + * { margin-left: 8px; }
+html.no-gap .pager > * + * { margin-left: 12px; }
+html.no-gap .filter-bar > * + * { margin-left: 7px; }
+html.no-gap .cat-head > * + * { margin-left: 10px; }
+html.no-gap .io-head > * + * { margin-left: 8px; }
+html.no-gap .balance-card .row > * + * { margin-left: 12px; }
+html.no-gap .ledger-row > * + * { margin-left: 10px; }
+
+/* ---------- 2. :has() 兜底 ----------
+   老内核不支持 :has()，选中态不显示。JS 会同步加 .is-checked 类。 */
+.kid-check.is-checked { border-color: var(--brand); background: var(--soft-mint-2); color: var(--brand); }
+.pick-item.is-checked { background: var(--soft-mint-2); border-color: rgba(100, 156, 116, .38); }
+
+/* ---------- 3. backdrop-filter 兜底 ----------
+   老内核不支持毛玻璃，用不透明底色保证文字可读、层级清晰。 */
+.modal-backdrop { background: rgba(14, 15, 20, .60); }
+@supports not (backdrop-filter: blur(1px)) {
+  .modal-backdrop { background: rgba(14, 15, 20, .72); }
+  .balance-card .kid-hint { background: rgba(255, 255, 255, .20); }
+}
+
+/* ---------- 4. Grid 兜底 ----------
+   .shop-grid 在老内核走 float 两列/三列布局。
+   触发方式：JS 探测到不支持 display:grid 时给 <html> 加 .no-grid。 */
+html.no-grid .shop-grid {
+  display: block;
+  overflow: hidden;
+}
+html.no-grid .shop-grid > .shop-item {
+  float: left;
+  width: 48.5%;
+  margin: 0 3% 10px 0;
+}
+html.no-grid .shop-grid > .shop-item:nth-child(2n) { margin-right: 0; }
+@media (min-width: 560px) {
+  html.no-grid .shop-grid > .shop-item { width: 31.5%; }
+  html.no-grid .shop-grid > .shop-item:nth-child(2n) { margin-right: 3%; }
+  html.no-grid .shop-grid > .shop-item:nth-child(3n) { margin-right: 0; }
+}
+
+/* ---------- 5. 多行省略兜底 ----------
+   老内核 line-clamp 不支持时，退化为单行省略，避免整段文字撑破卡片。 */
+html.no-clamp .tc-desc,
+html.no-clamp .shop-name {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: none;
+  min-height: 0;
+}
+
+/* ---------- 6. position: sticky 兜底 ----------
+   Android 11 原生浏览器/部分老 WebView 的 sticky 会「吸住不松」或直接错位，
+   导致页面无法正常滚动。这里降级为普通定位（顶栏随页面滚动）。 */
+html.no-sticky #topbar {
+  position: static;
+}
+html.no-sticky .modal-scroll {
+  -webkit-overflow-scrolling: auto;
+}
+
+/* ---------- 7. inset 简写兜底 ----------
+   老内核不支持 `inset: 0`，用四边显式声明。 */
+@supports not (inset: 0) {
+  .modal-backdrop { top: 0; right: 0; bottom: 0; left: 0; }
+}
+
+/* ---------- 8. 触摸滚动加固 ----------
+   老 WebView 的 -webkit-overflow-scrolling: touch 偶尔导致滚动卡死/白屏，
+   给弹窗内容区与整个 body 都补上可控滚动。 */
+.modal-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+html.no-sticky .modal-scroll { -webkit-overflow-scrolling: auto; }
+
+/* 老内核下 body 若被 flex 或 overflow 影响会锁死滚动，这里强制放开。 */
+body { overflow-y: auto; }
+
+/* ---------- 9. 老内核不支持 CSS 变量时的兜底 ----------
+   极老内核（无 var()）会导致所有描边/底色丢失。这里给关键结构补静态色。
+   用 @supports 判断 var 支持，仅在「不支持」时生效。 */
+@supports not (color: var(--x, red)) {
+  body { background: #f2f3f5; color: #1a1c22; }
+  #topbar { background: #1C1C24; border-bottom: 1px solid #3a3a44; }
+  .family-name { color: #e8e8ee; }
+  .brand-sub, .ident-label { color: #a0a0ad; }
+  select { background: #3B3B42; color: #e8e8ee; border-color: #3a3a44; }
+  #tabs button { color: #a0a0ad; }
+  .card, .task-card { background: #fff; border: 1px solid #e8e9ee; }
+  .card-title, .task-title, .tc-title { color: #1a1c22; }
+  .card-desc, .task-sub, .tc-desc, .hint, .ledger-note { color: #6e7280; }
+  .btn { background: #fff; color: #1a1c22; border: 1.5px solid #dcdde5; }
+  .btn.primary, .btn.ok { background: #649C74; color: #fff; border-color: transparent; }
+  .btn.warm { background: #d17b28; color: #fff; border-color: transparent; }
+  .btn.ghost { background: #f2f2fa; color: #6e7280; border-color: transparent; }
+  .pill { background: #f1f2f5; color: #50545e; }
+  .modal { background: #fff; }
+  .modal-title { background: #1C1C24; color: #e8e8ee; }
+  .modal-actions { background: #fff; border-top: 1px solid #e8e9ee; }
+  .balance-chip, #tabs button.active { background: #649C74; color: #fff; }
+  .toast { background: #1C1C24; color: #e8e8ee; }
+  .chip { background: #fff; color: #4a4e58; border: 1px solid #cbd0d6; }
+  .chip.on { background: #649C74; color: #fff; }
+  .empty { color: #6e7280; }
+}
+
+/* ---------- 10. 输入框字号保护 ----------
+   老内核 iOS/安卓在 font-size < 16px 时，聚焦会强制缩放页面，
+   造成「点一下页面就放大、弹窗跑出屏幕」的错觉。
+   （本项目表单输入已用 16px，这里再兜一层，防止遗漏。） */
+.form-field input[type=text],
+.form-field input[type=number],
+.form-field input[type=password],
+.form-field textarea,
+.form-field select.full,
+.cart-free-wrap input { font-size: 16px; }
+
+/* ---------- 11. 弹窗定位加固 ----------
+   老内核下 flex 居中 + max-height 百分比经常失效，导致弹窗高度塌陷
+   或超出屏幕无法触达底部按钮。这里给 .modal 一个显式的视觉高度上限。 */
+.modal-backdrop {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
+.modal {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+}
+.modal-scroll {
+  -webkit-box-flex: 1;
+  -webkit-flex: 1 1 auto;
+  flex: 1 1 auto;
+  max-height: 72vh;
+}
+.modal-actions {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+}
+.btn {
+  display: -webkit-inline-box;
+  display: -webkit-inline-flex;
+  display: inline-flex;
+}
+
+/* ---------- 12. 老内核按钮/链接点击延迟消除 ---------- */
+* { touch-action: manipulation; }
