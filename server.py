@@ -400,7 +400,7 @@ MAIL_MOCK_LOG = []       # 测试用：记录"已发送"的邮件（FAMILY_MAIL_
 MAIL_LAST_ERROR = ''     # 最近一次真实发送失败的原因（排查用）
 MAIL_TRANSPORT = ''      # 最近一次实际使用的通道：msmtp / smtp / mock（排查用）
 
-MAIL_DEFAULT_EMAIL = 'you@example.com'
+MAIL_DEFAULT_EMAIL = ''   # 默认收件人留空：请在设置页填写你自己的邮箱
 # 与巡检脚本（/usr/local/bin/server-audit.sh + /root/.msmtprc）共用同一条发信通道：
 #   msmtp -a qq <收件人> < 整封邮件内容（.msmtprc 里 account qq 已配好 QQ 邮箱授权码）
 MSMTP_ACCOUNT = os.environ.get('FAMILY_MSMTP_ACCOUNT', 'qq')
