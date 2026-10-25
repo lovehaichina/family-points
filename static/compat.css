@@ -201,6 +201,11 @@ html.no-clamp .shop-name {
   -webkit-line-clamp: none;
   min-height: 0;
 }
+/* v19：说明点击展开的兼容兜底 —— 老内核单行省略模式下，展开时恢复自动换行 */
+html.no-clamp .tc-desc.expanded {
+  white-space: normal;
+  word-break: break-word;
+}
 
 /* ---------- 6. position: sticky 兜底 ----------
    Android 11 原生浏览器/部分老 WebView 的 sticky 会「吸住不松」或直接错位，

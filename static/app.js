@@ -94,14 +94,18 @@
   var S = null;               // 服务端数据
   // v15：IDENT.memberToken = 当前成员的登录态（访问该成员页面的通行证）。
   //   需求：每次进入都要验证 —— 刷新页面后不保留成员登录态（memberToken 不落盘）。
-  var IDENT = { mode: '', memberId: 0, token: '', memberToken: '' };
+  var IDENT = { mode: '', memberId: 0, token: '', memberToken: '', memberTokenAt: 0 };
+  // v16：成员登录态改为「滑动 10 分钟」—— 与后端 MEMBER_IDLE_TTL 保持一致。
+  //   有操作就续期；连续 10 分钟没动作才需要重新输入 PIN。
+  var MEMBER_IDLE_MS = 10 * 60 * 1000;
   var TAB = {};
   var pendingFiles = [];
 
   var WEEKDAYS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   var STATUS_LABEL = {
     available: '可接取', in_progress: '进行中', submitted: '待审核',
-    done: '已完成', overdue: '已超时', abandoned: '已放弃', expired: '已过期', cancelled: '已取消'
+    done: '已完成', overdue: '已超时', abandoned: '已放弃', expired: '已过期',
+    cancelled: '已取消', failed: '未通过'
   };
   var LEDGER_LABEL = {
     claim: '接取消耗', reward: '任务奖励', refund: '成本退还', spend: '积分使用', adjust: '手动调整',
@@ -190,9 +194,11 @@
   /* ---------- 身份 ---------- */
   function saveIdent() {
     try {
-      // v15安全：成员登录态【不落盘】—— 每次进入/刷新都要重新验证 PIN。
+      // v16：成员登录态落盘（10 分钟滑动窗口内，刷新页面不用重新输 PIN）。
+      //   服务端仍然独立校验有效期，前端这份只是「免重输」的便利层。
       localStorage.setItem('family_ident', JSON.stringify({
-        mode: IDENT.mode, memberId: IDENT.memberId, token: IDENT.token
+        mode: IDENT.mode, memberId: IDENT.memberId, token: IDENT.token,
+        memberToken: IDENT.memberToken, memberTokenAt: IDENT.memberTokenAt
       }));
     } catch (e) {}
   }
@@ -204,11 +210,44 @@
         IDENT.mode = saved.mode || '';
         IDENT.memberId = saved.memberId || 0;
         IDENT.token = saved.token || '';
+        // v16：10 分钟滑动窗口内才恢复成员登录态
+        var at = saved.memberTokenAt || 0;
+        if (saved.memberToken && at && (Date.now() - at) < MEMBER_IDLE_MS) {
+          IDENT.memberToken = saved.memberToken;
+          IDENT.memberTokenAt = at;
+        }
       }
     } catch (e) {}
-    IDENT.memberToken = '';
-    if (!IDENT.mode) IDENT = { mode: '', memberId: 0, token: '', memberToken: '' };
+    if (!IDENT.mode) IDENT = { mode: '', memberId: 0, token: '', memberToken: '', memberTokenAt: 0 };
   }
+
+  // v16：有操作就给成员登录态续期（与后端滑动窗口对齐）
+  var _lastPingAt = 0;
+  function touchMember() {
+    if (IDENT.mode !== 'kid' || !IDENT.memberToken) return;
+    var now = Date.now();
+    if (now - (IDENT.memberTokenAt || 0) >= 30000) {   // 30 秒内不重复写盘
+      IDENT.memberTokenAt = now;
+      saveIdent();
+    }
+    // v16.1：服务端 token 只在收到 member:ping 时才滑动续期，
+    //   而前端此前从不调用它 → 服务端窗口不会跟着走。这里定时续一次，两边保持一致。
+    if (now - _lastPingAt >= 60000 && typeof fetch === 'function') {
+      _lastPingAt = now;
+      fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Member-Token': IDENT.memberToken },
+        body: JSON.stringify({ action: 'member:ping' })
+      }).then(function (r) { return r.json(); }).then(function (res) {
+        // 服务端确实失效了（改过 PIN / 被家长重置）→ 才清本地
+        if (res && res.needMemberLogin) {
+          IDENT.memberToken = ''; IDENT.memberTokenAt = 0; saveIdent(); renderAll();
+        }
+      }).catch(function () {});
+    }
+  }
+  document.addEventListener('click', touchMember, true);
+  document.addEventListener('keydown', touchMember, true);
 
   function me() {
     if (!S) return null;
@@ -237,7 +276,16 @@
 
   // 当前是否已通过某成员的门禁（memberToken 与 memberId 匹配时才算开）
   function memberGateOpen(mid) {
-    return !!(IDENT.memberToken && IDENT.memberId === mid && IDENT.mode === 'kid');
+    if (!(IDENT.memberToken && IDENT.memberId === mid && IDENT.mode === 'kid')) return false;
+    // v16：本地也判一次 10 分钟空闲期（服务端为准，这里避免过期后仍显示已登录）
+    var at = IDENT.memberTokenAt || 0;
+    if (at && (Date.now() - at) >= MEMBER_IDLE_MS) {
+      IDENT.memberToken = '';
+      IDENT.memberTokenAt = 0;
+      saveIdent();
+      return false;
+    }
+    return true;
   }
 
   function promptMemberPin(mid) {
@@ -256,6 +304,7 @@
           IDENT.mode = 'kid';
           IDENT.memberId = mid;
           IDENT.memberToken = res.token;
+          IDENT.memberTokenAt = Date.now();
           saveIdent();
           close();
           // 首次仍为默认 PIN → 强制修改后才能进入
@@ -387,6 +436,16 @@
     ]);
   }
 
+  /* v19：任务说明完整展示块（接取确认 / 提交证据 共用）——完整展示不截断，"（照片标准：…）"加粗高亮 */
+  function taskDescBlock(desc) {
+    desc = String(desc || '').trim();
+    if (!desc) return '';
+    var safe = esc(desc).replace(/（照片标准：([^）]*)）/g,
+      '<b class="std-photo">（照片标准：$1）</b>');
+    return '<div class="taskdesc-block"><div class="taskdesc-label">任务说明</div>' +
+      '<div class="taskdesc-text">' + safe + '</div></div>';
+  }
+
   /* ---------- 文件处理 ---------- */
   function fileToPayload(file) {
     return new Promise(function (resolve, reject) {
@@ -422,6 +481,7 @@
 
   /* ---------- 渲染 ---------- */
   function renderAll() {
+    bindMemberLogout();
     if (!S) return;
     $('#familyName').textContent = (S.settings && S.settings.family_name) || '家庭任务积分乐园';
     renderIdentity();
@@ -462,12 +522,37 @@
     var chip = $('#balanceChip');
     var m = me();
     // v15：只有通过门禁（memberToken 有效）才显示余额；否则显示「待验证」
+    // v16：通过门禁时，右上角出现「退出」按钮，可提前结束该成员的登录状态
+    var gateOpen = !!(IDENT.mode === 'kid' && m && memberGateOpen(m.id));
     if (IDENT.mode === 'kid' && m) {
       chip.hidden = false;
-      chip.textContent = memberGateOpen(m.id) ? (m.name + '：' + m.balance + ' 分') : (m.name + '：待验证');
+      chip.textContent = gateOpen ? (m.name + '：' + m.balance + ' 分') : (m.name + '：待验证');
     } else {
       chip.hidden = true;
     }
+    var lo = $('#memberLogout');
+    if (lo) lo.hidden = !gateOpen;
+  }
+
+  // v16：退出按钮只绑一次（index.html 不会被重建）
+  function bindMemberLogout() {
+    var lo = $('#memberLogout');
+    if (!lo || lo._bound) return;
+    lo._bound = true;
+    lo.addEventListener('click', memberLogout);
+  }
+
+  // v16：退出当前成员的登录状态
+  function memberLogout() {
+    var mid = IDENT.memberId;
+    act('member:logout', {}).then(function () {
+      IDENT.memberToken = '';
+      IDENT.memberTokenAt = 0;
+      saveIdent();
+      toast('已退出登录');
+      renderAll();
+      if (mid) setTimeout(function () { promptMemberPin(mid); }, 120);
+    });
   }
 
   var TAB_ICONS = {
@@ -549,7 +634,10 @@
     return '<div class="card gate-card"><div class="gate-lock">🔒</div>' +
       '<div class="card-title">进入「' + esc(who) + '」的页面需要验证</div>' +
       '<div class="card-desc">请输入 ' + esc(who) + ' 的 PIN 继续。首次使用默认为 1234，进入后请尽快修改。</div>' +
-      '<div class="card-actions"><button class="btn primary" id="gateEnter">输入 PIN 进入</button></div></div>';
+      '<div class="card-actions"><button class="btn primary" id="gateEnter">输入 PIN 进入</button></div>' +
+      '<div style="text-align:center;margin-top:12px">' +
+      '<a href="/guide" style="color:var(--brand-deep);font-size:12.5px;font-weight:700;text-decoration:none">' +
+      '第一次来？先看看「使用指南」→</a></div></div>';
   }
   function bindMemberGate() {
     var b = $('#gateEnter');
@@ -758,6 +846,7 @@
   var SLICES = {};   // key -> { page, total, items, loading, bg, dirty, err, seq }
 
   function sliceSrc(key) {
+    if (key.indexOf('ptodo_') === 0) return { kind: 'parent_todo', member_id: 0, cat: key.slice(6) || 'all' };
     if (key.indexOf('points_ledger_') === 0) return { kind: 'ledger', member_id: parseInt(key.slice(14), 10) };
     if (key.indexOf('mine_closed_') === 0) return { kind: 'instance_history', member_id: parseInt(key.slice(12), 10) };
     if (key.indexOf('kids_ledger_') === 0) return { kind: 'ledger', member_id: parseInt(key.slice(12), 10) };
@@ -767,13 +856,16 @@
   function doLoad(key, page, bg) {
     var st = SLICES[key];
     var src = sliceSrc(key);
-    if (!st || !src || !src.member_id) { return; }
+    if (!st || !src) { return; }
+    if (src.kind !== 'parent_todo' && !src.member_id) { return; }   // v18：家长历史无 member_id
     st.loading = true;
     st.bg = !!bg;
     st.err = '';
     st.page = Math.max(0, page);
     var seq = ++st.seq;
-    act('history:query', { kind: src.kind, member_id: src.member_id, offset: st.page * PAGE_SIZE, limit: PAGE_SIZE })
+    var q = { kind: src.kind, member_id: src.member_id, offset: st.page * PAGE_SIZE, limit: PAGE_SIZE };
+    if (src.cat) q.cat = src.cat;
+    act('history:query', q)
       .then(function (res) {
         if (seq !== st.seq) return;   // 丢弃迟到响应
         st.loading = false;
@@ -876,7 +968,12 @@
     return names.join('、');
   }
   function taskInstanceSummary(t) {
-    if (!t.active) return '已停用';
+    if (!t.active) {
+      // v16.3：专项任务接取名額用尽后会自动停用 —— 这里说清「怎么恢复」
+      return t.type === 'special'
+        ? '已停用（点「启用」可重新生成名额，等于再发一次）'
+        : '已停用';
+    }
     var cur;
     if (t.type === 'routine') {
       cur = (S.instances || []).filter(function (i) {
@@ -903,6 +1000,128 @@
     return scope + '：' + parts.join(' · ');
   }
 
+  /* ---------- v26.1：任务接取明细（折叠 + 分页；纯 div/button，兼容 Android 10/11 老 WebView） ---------- */
+  var INST_STATUS_TEXT = {
+    available: '可接', in_progress: '进行中', submitted: '待审核',
+    done: '已完成', cancelled: '已取消', expired: '已过期', abandoned: '已放弃'
+  };
+  var INST_ORDER = { in_progress: 0, submitted: 1, available: 2, done: 3, abandoned: 4, cancelled: 5, expired: 6 };
+  var DETAILS = {};        // taskId -> { items, page, loaded, err }
+  var DETAIL_OPEN = {};    // taskId -> true（跨 renderAll 保留展开态）
+
+  function detailState(tid) {
+    if (!DETAILS[tid]) DETAILS[tid] = { items: [], page: 0, loaded: false, err: '' };
+    return DETAILS[tid];
+  }
+
+  function detailRowsHtml(items) {
+    var list = items.slice().sort(function (a, b) {
+      var oa = INST_ORDER[a.status] === undefined ? 9 : INST_ORDER[a.status];
+      var ob = INST_ORDER[b.status] === undefined ? 9 : INST_ORDER[b.status];
+      return oa - ob || (a.id - b.id);
+    });
+    var rows = list.map(function (i) {
+      var who = i.assignee_name || i.member_name || (i.member_id ? ('#' + i.member_id) : '全体');
+      var st = INST_STATUS_TEXT[i.status] || i.status;
+      var claimed = fmtTs(i.claimed_at);
+      var sub = fmtTs(i.submitted_at) || fmtTs(i.completed_at);
+      var cls = (i.status === 'cancelled' || i.status === 'expired' || i.status === 'abandoned') ? ' class="dim"' : '';
+      return '<tr' + cls + '>' +
+        '<td>' + esc(who) + '</td>' +
+        '<td><span class="pill sm status-' + esc(i.status) + '">' + esc(st) + '</span></td>' +
+        '<td class="mono">' + (claimed || '—') + '</td>' +
+        '<td class="mono">' + (sub || '—') + '</td>' +
+        '</tr>';
+    }).join('');
+    return '<table class="detail-table"><thead><tr>' +
+      '<th>成员</th><th>状态</th><th>接取时间</th><th>提交/完成</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  /* 与全局 paged() 同一套文案与按钮结构，但走独立 key（data-dpage），不触发整页重渲染 */
+  function detailPagerHtml(tid, total, page) {
+    var pages = Math.ceil(total / PAGE_SIZE);
+    if (pages <= 1) return '';
+    return '<div class="pager">' +
+      '<button class="btn ghost small" data-dpage="' + tid + ':-1"' + (page === 0 ? ' disabled' : '') + '>上一页</button>' +
+      '<span class="pager-info">第 ' + (page + 1) + ' / ' + pages + ' 页 · 共 ' + total + ' 条</span>' +
+      '<button class="btn ghost small" data-dpage="' + tid + ':1"' + (page >= pages - 1 ? ' disabled' : '') + '>下一页</button>' +
+      '</div>';
+  }
+
+  function detailBodyHtml(tid) {
+    var st = detailState(tid);
+    if (!st.loaded) return '<div class="hint">加载中…</div>';
+    if (st.err) return '<div class="hint">' + esc(st.err) + '</div>';
+    var items = st.items || [];
+    if (!items.length) return '<div class="hint">暂无实例记录</div>';
+    var pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    if (st.page > pages - 1) st.page = pages - 1;
+    if (st.page < 0) st.page = 0;
+    var slice = items.slice(st.page * PAGE_SIZE, (st.page + 1) * PAGE_SIZE);
+    return detailRowsHtml(slice) + detailPagerHtml(tid, items.length, st.page);
+  }
+
+  function taskDetailHtml(t) {
+    var open = !!DETAIL_OPEN[t.id];
+    return '<div class="task-detail">' +
+      '<button type="button" class="detail-toggle" data-detail-task="' + t.id + '" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+      (open ? '▾' : '▸') + ' 接取明细' + (t.type === 'special' ? '' : '') +
+      '</button>' +
+      '<div class="detail-body" data-detail-body="' + t.id + '"' + (open ? '' : ' hidden') + '>' +
+      (open ? detailBodyHtml(t.id) : '') +
+      '</div></div>';
+  }
+
+  /* 展开/收起（点击时若未加载则拉数据；数据一次取全，翻页在本地切） */
+  function toggleDetail(tid, btn) {
+    var body = document.querySelector('[data-detail-body="' + tid + '"]');
+    if (!body) return;
+    var willOpen = body.hasAttribute('hidden');
+    if (willOpen) {
+      body.removeAttribute('hidden');
+      DETAIL_OPEN[tid] = true;
+      if (btn) {
+        btn.innerHTML = '▾ 接取明细';
+        btn.setAttribute('aria-expanded', 'true');
+      }
+      var st = detailState(tid);
+      if (!st.loaded) {
+        body.innerHTML = '<div class="hint">加载中…</div>';
+        act('parent:task_instances', { task_id: tid }).then(function (res) {
+          if (!res || !res.ok) {
+            st.err = (res && res.error) || '加载失败';
+            st.loaded = true;
+            body.innerHTML = detailBodyHtml(tid);
+            return;
+          }
+          st.items = res.items || [];
+          st.loaded = true;
+          body.innerHTML = detailBodyHtml(tid);
+        });
+      } else {
+        body.innerHTML = detailBodyHtml(tid);
+      }
+    } else {
+      body.setAttribute('hidden', 'hidden');
+      DETAIL_OPEN[tid] = false;
+      if (btn) {
+        btn.innerHTML = '▸ 接取明细';
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    }
+  }
+
+  function detailFlip(tid, delta) {
+    var st = detailState(tid);
+    var pages = Math.max(1, Math.ceil((st.items || []).length / PAGE_SIZE));
+    var next = Math.min(Math.max(st.page + delta, 0), pages - 1);
+    if (next === st.page) return;
+    st.page = next;
+    var body = document.querySelector('[data-detail-body="' + tid + '"]');
+    if (body) body.innerHTML = detailBodyHtml(tid);
+  }
+
   /* ---------- 孩子端 ---------- */
   function kidHallHtml() {
     var meId = IDENT.memberId;
@@ -923,9 +1142,10 @@
     if (m) {
       html += '<div class="card balance-card"><div class="row"><div>' +
         '<div class="label">' + esc(m.name) + '的当前积分</div>' +
-        '<div class="num">' + m.balance + '<span style="font-size:16px"> 分</span></div></div>' +
+        '<div class="num' + (m.balance < 0 ? ' neg' : '') + '">' + m.balance + '<span style="font-size:16px"> 分</span></div></div>' +
         '<div class="kid-hint">接取任务消耗积分（' + costHint() + '）<br>接取后需在 ' + deadlineH() + ' 小时内提交，超时作废' +
-        (pubSettings().x > 0 ? '<br>每天有利息：余额 × ' + pubSettings().x + '%' : '') + '</div></div></div>';
+        (pubSettings().x > 0 ? '<br>每天有利息：余额 × ' + pubSettings().x + '%' : '') +
+        (m.balance < 0 ? '<br><b style="color:var(--danger)">当前已透支，完成任务把积分补回来</b>' : '') + '</div></div></div>';
       if (pubSettings().enabled) {
         html += '<div class="card compact"><div class="card-head"><div>' +
           '<div class="card-title">想给自己发布任务？</div>' +
@@ -939,6 +1159,27 @@
         html += '<div class="section-title">我的发布申请</div>';
         html += paged('hall_myreq', myReqs, pubReqCard);
       }
+    }
+    // v16.4：本周排行（非零和竞争 —— 只排名次，不剥夺任何人的所得）
+    var rkItems = (S.ranking && S.ranking.items) || [];
+    if (rkItems.length > 1) {
+      var meRow = rkItems.filter(function (x) { return x.member_id === meId; })[0];
+      var rkTop = rkItems[0];
+      var rkGap = (meRow && meRow.rank > 1) ? (rkTop.net - meRow.net) : 0;
+      html += '<div class="section-title">本周排行 · 从周一算起</div>';
+      html += '<div class="card compact"><div class="rank-list">' +
+        rkItems.map(function (x) {
+          var pos = x.rank === 1 ? '🥇' : (x.rank === 2 ? '🥈' : (x.rank === 3 ? '🥉' : ('第' + x.rank)));
+          return '<div class="rank-row' + (x.member_id === meId ? ' me' : '') + '">' +
+            '<span class="rk-pos">' + pos + '</span>' +
+            '<span class="rk-name">' + esc(x.name) + (x.member_id === meId ? '（我）' : '') + '</span>' +
+            '<span class="rk-score">' + x.net + ' 分</span>' +
+            '<span class="rk-sub">完成 ' + x.done + ' 项</span></div>';
+        }).join('') + '</div>' +
+        (rkGap > 0
+          ? '<div class="hint" style="margin-top:9px">还差 <b>' + rkGap + '</b> 分就能追平第一名 —— 本周还有时间</div>'
+          : '<div class="hint" style="margin-top:9px">本周目前第一，继续保持 👊</div>') +
+        '</div>';
     }
     // v9.0：类型 + 标签 双维度筛选
     var allAvail = daily.concat(rout, spec);
@@ -958,11 +1199,16 @@
       html += daily.length ? paged('hall_daily', daily, function (i) { return hallCard(i, meId); }) : '<div class="empty">今天没有待接取的例行任务</div>';
       html += '<div class="section-sub">每周例行（每周可接一次）</div>';
       html += rout.length ? paged('hall_rout', rout, function (i) { return hallCard(i, meId); }) : '<div class="empty">本周没有待接取的例行任务</div>';
-      html += '<div class="section-sub">专项任务（不定期发布）</div>';
+      // v16.4：专项任务是【共享实例 · 先到先得】—— 必须让孩子知道在竞争
+      html += '<div class="section-sub">专项任务（不定期发布 · ⚡先到先得，抢完即止）</div>';
       html += spec.length ? paged('hall_spec', spec, function (i) { return hallCard(i, meId); }) : '<div class="empty">暂时没有新的专项任务</div>';
     } else {
       html += paged('hall_filtered', shown, function (i) { return hallCard(i, meId); });
     }
+    // v24：大厅底部「使用指南」入口（v23 起的规则说明页）
+    html += '<div style="text-align:center;margin:20px 0 6px">' +
+      '<a href="/guide" style="color:var(--muted);font-size:12.5px;font-weight:700;text-decoration:none">' +
+      '📖 使用指南 · 你的积分，你的选择</a></div>';
     return html;
   }
 
@@ -1044,18 +1290,34 @@
     var pb = $('#btnPubReq');
     if (pb) pb.onclick = openPublishModal;
     bindFilters('hall');
+    // v19：卡片上的说明默认两行，点一下展开/收起全文（列表保持紧凑）
+    //   不用 classList.toggle（老内核/老 WebView 有边缘问题，v14 兼容精神同款手写）
+    Array.prototype.forEach.call(document.querySelectorAll('.tc-desc'), function (d) {
+      d.onclick = function () {
+        if (d.className.indexOf('expanded') >= 0) {
+          d.className = d.className.replace(/\s*expanded\b/g, '');
+        } else {
+          d.className += ' expanded';
+        }
+      };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-claim]'), function (b) {
       b.onclick = function () {
         var iid = parseInt(b.getAttribute('data-claim'), 10);
         var inst = (S.instances || []).filter(function (i) { return i.id === iid; })[0];
         if (!inst) return;
-        confirmDialog('接取任务', '接取「' + inst.task_title + '」将消耗 ' + inst.cost + ' 分（' +
-          costHint() + '），并请在 ' + deadlineH() + ' 小时内提交证据（超时任务作废、已扣积分不退还）。确定接取吗？',
-          '确定接取', 'warm', function () {
-          act('claim', { instance_id: iid, member_id: IDENT.memberId }).then(function (res) {
-            if (res.ok) { toast('接取成功，加油完成！'); refresh(); }
-          });
-        });
+        // v19：接取前完整展示任务说明（含照片标准）——此前确认框不含说明，卡片上又只有两行截断
+        openModal('接取任务', taskDescBlock(inst.task_desc) +
+          '<div class="confirm-msg">接取「' + esc(inst.task_title) + '」将消耗 ' + inst.cost + ' 分（' +
+          esc(costHint()) + '），并请在 ' + deadlineH() + ' 小时内提交证据（超时任务作废、已扣积分不退还）。确定接取吗？</div>', [
+          { label: '取消', cls: 'ghost', onClick: function (close) { close(); } },
+          { label: '确定接取', cls: 'warm', onClick: function (close) {
+            close();
+            act('claim', { instance_id: iid, member_id: IDENT.memberId }).then(function (res) {
+              if (res.ok) { toast('接取成功，加油完成！'); refresh(); }
+            });
+          } }
+        ]);
       };
     });
   }
@@ -1160,6 +1422,9 @@
     if (inst.status === 'abandoned') {
       note += '<div class="hint warn">已放弃任务：接取消耗不退还（任务已回到大厅）。</div>';
     }
+    if (inst.status === 'failed') {
+      note += '<div class="hint warn">连续 3 次未通过核验，本任务已结束并回到大厅；接取消耗不退还。</div>';
+    }
     var review = inst.review_note ? '<div class="hint warn">家长反馈：' + esc(inst.review_note) + '</div>' : '';
     // v10：连续完成进度也在这里展示——任务完成后就从大厅消失，孩子只有在这里才能看到自己的连续战绩
     var streak = streakHintByTask(inst.task_id, inst.task_type, inst.assignee_id || IDENT.memberId);
@@ -1192,7 +1457,10 @@
 
   function openSubmitModal(iid) {
     pendingFiles = [];
+    // v19：提交证据页再次完整展示任务说明（含照片标准），孩子提交前可直接对照
+    var inst = (S.instances || []).filter(function (i) { return i.id === iid; })[0] || {};
     openModal('提交证据', '' +
+      taskDescBlock(inst.task_desc) +
       '<div class="form-field"><label>证据附件（照片/PDF，最多 6 个；手机可直接拍照）</label>' +
       '<input type="file" id="evFiles" multiple accept="image/*,application/pdf"></div>' +
       '<div class="thumbs" id="evThumbs"></div>' +
@@ -1233,7 +1501,8 @@
     if (m) {
       html += '<div class="card balance-card"><div class="row"><div>' +
         '<div class="label">' + esc(m.name) + '的当前积分</div>' +
-        '<div class="num">' + m.balance + '<span style="font-size:16px"> 分</span></div></div>' +
+        '<div class="num' + (m.balance < 0 ? ' neg' : '') + '">' + m.balance + '<span style="font-size:16px"> 分</span>' +
+        (m.balance < 0 ? '<span class="neg-tag">透支中</span>' : '') + '</div></div>' +
         '<div class="actions"><button class="btn warm" id="btnSpend">使用积分</button></div></div></div>';
     }
     html += '<div class="section-title">我的使用申请</div>';
@@ -1247,9 +1516,10 @@
               var cnt = (r.items || []).reduce(function (a, it) { return a + (it.quantity || 1); }, 0);
               title = '兑换 ' + r.items.length + ' 类商品（合计 ' + r.amount + ' 分）';
               desc = '<div class="req-items">' + r.items.map(function (it) {
-                return '<div class="req-item"><span class="req-item-name">' + esc(it.name) +
+                var off = (it.picked === false);   // v22b：部分通过时被拒项标记（与家长端历史一致）
+                return '<div class="req-item' + (off ? ' off' : '') + '"><span class="req-item-name">' + esc(it.name) +
                   ((it.quantity || 1) > 1 ? ' ×' + it.quantity : '') + '</span>' +
-                  '<span class="req-item-amt">' + it.amount + ' 分</span></div>';
+                  '<span class="req-item-amt">' + (off ? '未通过' : it.amount + ' 分') + '</span></div>';
               }).join('') + '</div>';
             } else if (r.kind === 'reward' && r.reward_name) {
               title = '兑换：' + esc(r.reward_name) + ((r.quantity || 1) > 1 ? ' ×' + r.quantity : '') + '（' + r.amount + ' 分）';
@@ -1474,7 +1744,10 @@
       { label: '提交给家长确认', cls: 'warm', onClick: function (close) {
         var total = cartTotal();
         if (!cart.length && !freeAmount) { toast('购物车是空的，请先选择要兑换的内容', true); return; }
-        if (total > m.balance) { toast('积分不足：购物车共需 ' + total + ' 分，当前 ' + m.balance + ' 分', true); return; }
+        // v23：允许透支提交（超出余额也可申请，家长确认时把关）——不再拦截
+        if (total > m.balance) {
+          toast('注意：本次为透支申请（超出 ' + (total - m.balance) + ' 分），需家长确认');
+        }
         var note = ($('#spNote') || {}).value || '';
         var items = cart.map(function (c) {
           return { kind: 'reward', reward_id: c.reward_id, quantity: c.quantity };
@@ -1502,13 +1775,116 @@
       if (fok) fok.onclick = function () {
         var v = parseInt(($('#spAmount') || {}).value || '0', 10);
         if (!v || v <= 0) { toast('请填写大于 0 的数值', true); return; }
-        if (v > m.balance) { toast('数值不能超过当前余额（' + m.balance + ' 分）', true); return; }
+        // v23：允许超出余额（透支申请，提交时提示）——仅保留 >0 校验
         freeAmount = v;
         $('#spFreeWrap').style.display = 'none';
         renderCart();
-        toast('已加入购物车：自由支配 ' + v + ' 分');
+        toast('已加入购物车：自由支配 ' + v + ' 分' + (v > m.balance ? '（将透支）' : ''));
       };
     }, 60);
+  }
+
+  /* v21：家长待办——AI 核验结论（仅家长可见；孩子端数据里不含此信息） */
+  var TODO_AI = {};
+  function loadTodoAiResults() {
+    act('parent:ai_results', {}).then(function (res) {
+      if (!res.ok) return;
+      TODO_AI = res.items || {};
+      Array.prototype.forEach.call(document.querySelectorAll('[data-ai-slot]'), function (el) {
+        var iid = el.getAttribute('data-ai-slot');
+        var r = TODO_AI[iid];
+        if (!r || r.verdict === 'pass') { el.innerHTML = ''; return; }
+        if (r.verdict === 'suspect') {
+          el.innerHTML = '<div class="ai-block suspect"><div class="ai-block-title">AI 核验：存疑</div>' +
+            '<div class="ai-block-line">理由：' + esc(r.reason || '') + '</div>' +
+            (r.seen ? '<div class="ai-block-line muted">看到：' + esc(r.seen) + '</div>' : '') +
+            '<div class="ai-block-hint">请你看一眼照片再决定；驳回时已为你预填建议意见（可修改）。</div></div>';
+        } else if (r.verdict === 'fail') {
+          el.innerHTML = '<div class="ai-block fail"><div class="ai-block-title">AI 核验：不符</div>' +
+            '<div class="ai-block-line">理由：' + esc(r.reason || '') + '</div></div>';
+        } else {
+          el.innerHTML = '<div class="ai-block"><div class="ai-block-line muted">' +
+            'AI 未能核验（服务暂不可用），请人工审核。</div></div>';
+        }
+      });
+    });
+  }
+
+  /* ---------- v18：家长「已处理记录」（待办历史） ----------
+     · 通过 / 打回 / 确认 / 驳回 全量留档（服务端 decisions 表）
+     · 分类筛选（类型 chips）+ 服务端分页（复用 asyncPaged，跟孩子端历史同一套机制） */
+  var TODO_CAT = 'all';
+  var TODO_CATS = [
+    ['all', '全部'], ['review', '任务审核'], ['spend', '兑换申请'],
+    ['streak', '连续奖励'], ['publish', '发布申请']
+  ];
+  var TODO_KIND_NAMES = { review: '任务审核', spend: '兑换申请', streak: '连续奖励', publish: '发布申请' };
+
+  function todoCatChipsHtml() {
+    return '<div class="filter-row"><div class="filter-chips">' +
+      TODO_CATS.map(function (c) {
+        return '<button class="chip' + (TODO_CAT === c[0] ? ' on' : '') + '" data-ptcat="' + c[0] + '">' + c[1] + '</button>';
+      }).join('') + '</div></div>';
+  }
+
+  function histCardHtml(d) {
+    var catName = TODO_KIND_NAMES[d.kind] || d.kind;
+    var ok = d.result === 'approved';
+    // 防御：驳回/打回条目一律不显示金额（真实链路 amount 必为 0，脏数据也不误导）
+    var amtTxt = !ok ? '' : (d.amount > 0 ? ('+' + d.amount + ' 分') : (d.amount < 0 ? (d.amount + ' 分') : ''));
+    var stateTxt = ok ? '已通过' : (d.kind === 'review' ? '已打回' : '已驳回');
+    var det = d.detail || {};
+    // ===== v22：明细区（快照优先，不随实例后续变化） =====
+    var noteHtml = '';
+    var detailHtml = '';
+    if (d.kind === 'review') {
+      // 照片：优先明细快照（detail.files）；老记录回退实时关联（d.files）
+      var fls = (det.files && det.files.length)
+        ? det.files.map(function (f) { return { filename: f.filename, url: '/uploads/' + (f.path || '') }; })
+        : (d.files || []);
+      if (fls.length) {
+        detailHtml += '<div class="evidence">' + fls.map(function (f) {
+          if (/\.(png|jpe?g|webp|gif)$/i.test(f.url || '')) {
+            return '<a href="' + f.url + '" target="_blank">' +
+              '<img src="' + f.url + '" alt="证据" onerror="this.style.display=\'none\'"></a>';
+          }
+          return '<a class="file-chip" href="' + f.url + '" target="_blank">' + esc(f.filename) + '</a>';
+        }).join('') + '</div>';
+      }
+      var sn = (det.submit_note || d.member_note || '');
+      if (sn) noteHtml = '<div class="card-desc">提交说明：' + esc(sn) + '</div>';
+    } else if (d.kind === 'spend' || d.kind === 'streak') {
+      if (det.kind === 'cart' && (det.items || []).length) {
+        // 购物车明细：逐项展示，未通过的划掉
+        var nPicked = det.items.filter(function (it) { return it.picked !== false; }).length;
+        detailHtml += '<div class="req-items">' + det.items.map(function (it) {
+          var on = it.picked !== false;
+          return '<div class="req-item' + (on ? '' : ' off') + '">' +
+            '<span class="req-item-name">' + esc(it.name || '') + ((it.quantity || 1) > 1 ? ' ×' + it.quantity : '') + '</span>' +
+            '<span class="req-item-amt">' + (on ? (it.amount || 0) + ' 分' : '未通过') + '</span></div>';
+        }).join('') +
+        (nPicked < det.items.length ? '<div class="card-desc">共 ' + det.items.length + ' 项，通过 ' + nPicked + ' 项</div>' : '') +
+        '</div>';
+      } else if (det.reward_name) {
+        detailHtml += '<div class="card-desc">兑换项：' + esc(det.reward_name) +
+          ((det.quantity || 1) > 1 ? ' ×' + det.quantity : '') + '</div>';
+      } else if (det.amount) {
+        detailHtml += '<div class="card-desc">涉及金额：' + det.amount + ' 分</div>';
+      }
+      if (d.member_note) noteHtml = '<div class="card-desc">备注：' + esc(d.member_note) + '</div>';
+    } else if (d.member_note) {
+      noteHtml = '<div class="card-desc">' + (d.kind === 'publish' ? '发布说明：' : '提交说明：') + esc(d.member_note) + '</div>';
+    }
+    return '<div class="card compact"><div class="card-head"><div>' +
+      '<div class="card-title">' + esc(d.member_name || '') + ' · ' + esc(d.title || catName) + '</div>' +
+      '<div class="card-desc">' + catName + ' ｜ ' + stateTxt + (amtTxt ? '（' + amtTxt + '）' : '') +
+      ' ｜ ' + fmtTs(d.created_at) +
+      (d.note ? ' ｜ ' + (d.note.indexOf('AI：') === 0
+          ? '<span class="ai-tag">AI</span> ' + esc(d.note.slice(3))
+          : '意见：' + esc(d.note)) : '') + '</div>' +
+      noteHtml + '</div>' +
+      '<span class="pill ' + (ok ? 'status-done' : 'status-rejected') + '">' + stateTxt + '</span>' +
+      '</div>' + detailHtml + '</div>';
   }
 
   /* ---------- 家长端：待办 ---------- */
@@ -1552,7 +1928,14 @@
     } else {
       html += '<div class="empty">没有待处理的发布申请</div>';
     }
+    // v16.5：家长审核减负 —— 一键通过全部待审核
     html += '<div class="section-title">待审核的任务（' + reviews.length + '）</div>';
+    if (reviews.length > 1) {
+      html += '<div class="card compact"><div class="card-actions" style="margin-top:0">' +
+        '<button class="btn ok" id="btnApproveAll">✓ 全部通过（' + reviews.length + ' 条，一次发放 +' +
+        reviews.reduce(function (a, i) { return a + (i.reward || 0); }, 0) + ' 分）</button></div>' +
+        '<div class="hint">逐条确认很费时间时用这个；只有确认孩子都做完了才点。免审任务（在任务里勾选）不会进这个列表。</div></div>';
+    }
     if (reviews.length) {
       html += paged('todo_review', reviews, function (i) {
         var filesHtml = (i.files && i.files.length) ? '<div class="evidence">' + i.files.map(function (f) {
@@ -1566,6 +1949,7 @@
           '<div class="card-desc">提交人：' + esc(i.assignee_name || '') + ' · ' + fmtTs(i.submitted_at) + '</div>' +
           (i.submit_note ? '<div class="card-desc">说明：' + esc(i.submit_note) + '</div>' : '') + '</div>' +
           '<span class="pill status-submitted">待审核</span></div>' + filesHtml +
+          '<div class="ai-slot" data-ai-slot="' + i.id + '"></div>' +
           '<div class="card-actions">' +
           '<button class="btn ok" data-approve="' + i.id + '">通过并发放 +' + i.reward + ' 分</button>' +
           '<button class="btn danger" data-reject="' + i.id + '">驳回</button></div></div>';
@@ -1619,11 +2003,26 @@
     } else {
       html += '<div class="empty">没有待确认的使用申请</div>';
     }
+    // ===== v18：已处理记录（历史）—— 通过 / 打回 / 确认 / 驳回 全量留档 =====
+    html += '<div class="section-title" style="margin-top:26px">已处理记录</div>';
+    html += todoCatChipsHtml();
+    html += asyncPaged('ptodo_' + TODO_CAT, histCardHtml, '还没有处理记录，处理完的待办会出现在这里');
     setTimeout(bindParentTodo, 0);
     return html;
   }
 
   function bindParentTodo() {
+    // v21：拉取待审实例的 AI 核验结论（仅家长可见；异步填充）
+    loadTodoAiResults();
+    // v18：已处理记录的类型筛选（切换类别 → 重新渲染，历史区按新 key 加载）
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ptcat]'), function (b) {
+      b.onclick = function () {
+        var v = b.getAttribute('data-ptcat');
+        if (v === TODO_CAT) return;
+        TODO_CAT = v;
+        renderView();
+      };
+    });
     // v10：连续完成奖励的确认 / 不发放
     Array.prototype.forEach.call(document.querySelectorAll('[data-streak-approve]'), function (b) {
       b.onclick = function () {
@@ -1668,6 +2067,17 @@
         });
       };
     });
+    var btnAll = $('#btnApproveAll');
+    if (btnAll) btnAll.onclick = function () {
+      var ids = (reviews || []).map(function (i) { return i.id; });
+      var total = (reviews || []).reduce(function (a, i) { return a + (i.reward || 0); }, 0);
+      confirmDialog('全部通过', '将一次性通过 ' + ids.length + ' 条待审核任务，共发放奖励 +' + total +
+        ' 分。确认这些任务都已按要求完成？', '全部通过并发放', 'ok', function () {
+        act('parent:approve_batch', { instance_ids: ids }).then(function (res) {
+          if (res.ok) { toast('已通过 ' + res.approved + ' 条' + (res.skipped ? '，跳过 ' + res.skipped + ' 条' : '')); refresh(); }
+        });
+      });
+    };
     Array.prototype.forEach.call(document.querySelectorAll('[data-approve]'), function (b) {
       b.onclick = function () {
         var iid = parseInt(b.getAttribute('data-approve'), 10);
@@ -1682,13 +2092,25 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-reject]'), function (b) {
       b.onclick = function () {
         var iid = parseInt(b.getAttribute('data-reject'), 10);
+        var inst = (S.instances || []).filter(function (i) { return i.id === iid; })[0] || {};
+        var cnt = parseInt(inst.reject_count || 0, 10) + 1;   // 本次是第几次打回
+        var aiPre = (TODO_AI[String(iid)] || {}).parent_reason || '';
+        var third = (cnt >= 3);
         openModal('驳回任务', '<div class="form-field"><label>驳回原因（会展示给孩子）</label>' +
-          '<textarea id="rjNote" placeholder="例如：桌面还没有擦干净，请补充照片"></textarea></div>' +
-          '<div class="hint">驳回后任务回到「进行中」，孩子可补充证据后重新提交；接取消耗不重复扣。注意：如接近时限请提醒孩子尽快提交。</div>', [
+          '<textarea id="rjNote" placeholder="例如：桌面还没有擦干净，请补充照片">' + esc(aiPre) + '</textarea></div>' +
+          (third
+            ? '<div class="hint warn"><b>注意：这将是第 3 次打回</b> —— 任务将直接失败并回到大厅（孩子损失接取消耗、不退还），确定吗？</div>'
+            : '<div class="hint">驳回后任务回到「进行中」，孩子可补充证据后重新提交；接取消耗不重复扣。注意：如接近时限请提醒孩子尽快提交。</div>'), [
           { label: '取消', cls: 'ghost', onClick: function (close) { close(); } },
-          { label: '确认驳回', cls: 'danger', onClick: function (close) {
+          { label: third ? '确认驳回（将作废）' : '确认驳回', cls: 'danger', onClick: function (close) {
             var note = ($('#rjNote') || {}).value || '';
-            act('parent:reject', { instance_id: iid, note: note }).then(function (res) { if (res.ok) { close(); toast('已驳回'); refresh(); } });
+            act('parent:reject', { instance_id: iid, note: note }).then(function (res) {
+              if (res.ok) {
+                close();
+                toast(res.failed ? '已驳回：任务已作废并回到大厅' : '已驳回' + (res.count ? '（第 ' + res.count + ' 次）' : ''));
+                refresh();
+              }
+            });
           } }
         ]);
       };
@@ -1805,6 +2227,7 @@
         '</div>' +
         '<div class="task-sub">奖励 +' + t.reward + ' ｜ 消耗 -' + t.cost + ' ｜ 对象：' + esc(kidsText(t)) + '</div>' +
         '<div class="task-sub">' + esc(taskInstanceSummary(t)) + '</div>' +
+        taskDetailHtml(t) +
         '</div><div class="task-side">' +
         '<button class="btn small" data-edit-task="' + t.id + '">编辑</button>' +
         '<button class="btn small ' + (t.active ? 'danger' : 'ok') + '" data-toggle-task="' + t.id + '" data-to="' + (t.active ? '0' : '1') + '">' + (t.active ? '停用' : '启用') + '</button>' +
@@ -1816,6 +2239,12 @@
   function bindParentTasks() {
     $('#btnNewTask').onclick = function () { openTaskModal(null); };
     bindFilters('parent');
+    // v26.1：接取明细——折叠用 button（不依赖 <details>），展开时才拉数据，翻页本地切
+    Array.prototype.forEach.call(document.querySelectorAll('[data-detail-task]'), function (b) {
+      b.onclick = function () {
+        toggleDetail(parseInt(b.getAttribute('data-detail-task'), 10), b);
+      };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-edit-task]'), function (b) {
       b.onclick = function () {
         var tid = parseInt(b.getAttribute('data-edit-task'), 10);
@@ -1826,8 +2255,19 @@
       b.onclick = function () {
         var tid = parseInt(b.getAttribute('data-toggle-task'), 10);
         var to = b.getAttribute('data-to') === '1';
+        var tk = (S.tasks || []).filter(function (x) { return x.id === tid; })[0] || {};
         act('parent:toggle_task', { task_id: tid, active: to }).then(function (res) {
-          if (res.ok) { toast(to ? '已启用（已刷新为可接取）' : '已停用'); refresh(); }
+          if (!res.ok) return;
+          var msg;
+          if (!to) {
+            msg = '已停用';
+          } else if (tk.type === 'special') {
+            // v16.3：专项「再次启用」= 再发一次，会重新生成可接取名額
+            msg = '已启用：专项已重新生成（可接取 ' + (res.available || 0) + ' 个名额）';
+          } else {
+            msg = '已启用（已刷新为可接取）';
+          }
+          toast(msg); refresh();
         });
       };
     });
@@ -1860,12 +2300,19 @@
       '<input type="text" id="tkTagCustom" maxlength="12" placeholder="输入自定义标签" style="display:none;margin-top:8px">' +
       '</div>' +
       '<div class="form-field"><label>任务说明（选填）</label><textarea id="tkDesc" placeholder="具体要求、验收标准等">' + esc(t.description) + '</textarea></div>' +
+      '<div class="form-field"><label>审核方式</label><select class="full" id="tkAuto">' +
+      '<option value="0"' + (t.auto_approve ? '' : ' selected') + '>家长审核（提交后进待审核）</option>' +
+      '<option value="1"' + (t.auto_approve ? ' selected' : '') + '>免审（提交即完成、立即到账）</option>' +
+      '</select><div class="hint" style="margin-top:5px">免审适合家长肉眼可见的日常项（签到、运动、阅读、家务），' +
+      '能大幅减少待审核条数。</div></div>' +
       '<div class="form-row"><div class="form-field"><label>完成奖励（分）</label>' +
       '<input type="number" id="tkReward" min="0" value="' + t.reward + '"></div>' +
-      '<div class="form-field"><label>接取消耗（自动计算）</label>' +
-      '<div class="tk-cost-ro" id="tkCostRo">—</div></div></div>' +
-      '<div class="hint">接取消耗 = 完成奖励 × 接取费率 <b>' + pubSettings().n + '%</b>' +
-      '（在「设置 → 孩子自建任务 → 接取费率 n」统一调整，所有任务共用此费率）。<br>' +
+      '<div class="form-field"><label>接取消耗（分，留空 = 自动）</label>' +
+      '<input type="number" id="tkCost" min="0" placeholder="留空 = 奖励 × ' + pubSettings().n + '%"' +
+      ' value="' + (t.claim_cost === null || t.claim_cost === undefined ? '' : t.claim_cost) + '">' +
+      '<div class="hint" id="tkCostRo" style="margin-top:5px">—</div></div></div>' +
+      '<div class="hint">留空则按「完成奖励 × 接取费率 <b>' + pubSettings().n + '%</b>」自动计算（在「设置 → 孩子自建任务 → 接取费率 n」统一调整）。' +
+      '也可为单个任务指定消耗（0 = 免费接取，不能超过完成奖励）。<br>' +
       '每天例行的实例每天自动刷新；接取后需在 ' + deadlineH() + ' 小时内提交，超时作废；接取消耗在接取时扣除（' + costHint() + '）。</div>', [
       { label: '取消', cls: 'ghost', onClick: function (close) { close(); } },
       { label: isEdit ? '保存修改' : '发布任务', cls: 'primary', onClick: function (close) {
@@ -1879,8 +2326,10 @@
           description: $('#tkDesc').value.trim(),
           tag: String(tag).trim().slice(0, 12),
           reward: parseInt($('#tkReward').value || '0', 10),
-          // v13：不传 cost —— 接取消耗由后端按「奖励 × 接取费率 n%」统一计算
+          // v23：接取消耗 —— 留空/0 空串 = 按默认自动派生；填数字 = 该任务自定义
+          claim_cost: (($('#tkCost') || {}).value || '').trim(),
           weekday: $('#tkWeekday').value === '' ? null : parseInt($('#tkWeekday').value, 10),
+          auto_approve: ($('#tkAuto') || {}).value === '1',   // v16.5：免审
           kids: Array.prototype.slice.call(document.querySelectorAll('input[name=tkKid]:checked')).map(function (el) {
             return parseInt(el.value, 10);
           })
@@ -1891,18 +2340,25 @@
         });
       } }
     ]);
-    // v13：奖励输入实时联动「接取消耗」只读展示
+    // v13/v23：奖励输入实时联动「接取消耗」提示（自定义留空时显示默认值）
     (function () {
       var ro = $('#tkCostRo');
       var rw = $('#tkReward');
+      var ci = $('#tkCost');
       function syncCost() {
         if (!ro) return;
         var v = parseInt((rw || {}).value || '0', 10);
-        if (isNaN(v) || v <= 0) { ro.textContent = '免接取费'; return; }
-        var c = pubCost(v);
-        ro.textContent = c > 0 ? ('-' + c + ' 分') : '免接取费（费率 ' + pubSettings().n + '%）';
+        var custom = ((ci || {}).value || '').trim();
+        var def = (isNaN(v) || v <= 0) ? 0 : pubCost(v);
+        if (custom !== '') {
+          ro.textContent = '该任务使用自定义消耗（' + custom + ' 分，不能超过完成奖励）';
+          return;
+        }
+        ro.textContent = def > 0 ? ('留空将按默认扣 ' + def + ' 分（奖励 ' + v + ' × ' + pubSettings().n + '%）')
+                                 : '留空则为免接取费';
       }
       if (rw) { rw.oninput = syncCost; rw.onchange = syncCost; }
+      if (ci) { ci.oninput = syncCost; ci.onchange = syncCost; }
       syncCost();
     })();
     var typeSel = $('#tkType');
@@ -2050,7 +2506,8 @@
     html += paged('parent_kids', kidList, function (k) {
       return '<div class="card"><div class="card-head"><div>' +
         '<div class="card-title">' + esc(k.name) + '</div>' +
-        '<div class="card-desc">当前积分：<b style="font-size:20px;color:var(--brand-deep)">' + k.balance + '</b> 分</div></div>' +
+        '<div class="card-desc">当前积分：<b style="font-size:20px;color:' + (k.balance < 0 ? 'var(--danger)' : 'var(--brand-deep)') + '">' + k.balance + '</b> 分' +
+        (k.balance < 0 ? '（透支中）' : '') + '</div></div>' +
         '<div><button class="btn small" data-adjust="' + k.id + '">调整积分</button></div></div>' +
         '<div style="margin-top:8px">' + asyncPaged('kids_ledger_' + k.id, function (l) {
           var plus = l.delta > 0;
@@ -2112,6 +2569,35 @@
       '利息：孩子余额每天获得 余额 × x% 的积分（每天一次、向下取整，余额为 0 时不计息）。</div>' +
       '<div class="card-actions"><button class="btn primary small" id="stKidPubSave">保存设置</button>' +
       '<button class="btn small" id="stResyncCost">重算全部任务接取消耗</button></div></div>';
+    html += '<div class="section-title">AI 审核</div>';
+    html += '<div class="card"><div class="form-field"><label>自动审核开关</label>' +
+      '<div style="margin-top:6px"><label style="display:block;font-weight:400;margin-bottom:6px">' +
+      '<input type="radio" name="stAi" value="1"' + (S.settings.ai_review_enabled ? ' checked' : '') + '> 开启：孩子提交的照片自动核验</label>' +
+      '<label style="display:block;font-weight:400"><input type="radio" name="stAi" value="0"' + (!S.settings.ai_review_enabled ? ' checked' : '') + '> 关闭：全部由我人工审核</label></div></div>' +
+      '<div class="hint long">开启后：照片符合要求的自动通过加分；看不准的会进「待办」请你确认；明显不符的自动打回（孩子会收到反馈）。所有处理均可在「待办 → 已处理记录」中回看（含照片与理由）。</div>' +
+      '<div class="card-actions"><button class="btn primary small" id="stAiSave">保存</button></div></div>';
+    html += '<div class="section-title">待办邮件通知</div>';
+    html += '<div class="card">' +
+      '<div class="card-desc">孩子提交任务、申请兑换、达成连续奖励、申请发布任务时，自动发邮件提醒你。每条待办都会即时发送一封。</div>' +
+      '<div class="form-row"><div class="form-field"><label>通知开关</label><select class="full" id="nfEnabled">' +
+      '<option value="1"' + (S.settings.notify_enabled ? ' selected' : '') + '>开启（有新的待办就发邮件）</option>' +
+      '<option value="0"' + (!S.settings.notify_enabled ? ' selected' : '') + '>关闭</option></select></div>' +
+      '<div class="form-field"><label>收件邮箱</label><input type="text" id="nfEmail" value="' + esc(S.settings.notify_email || '') + '" placeholder="例如：you@example.com"></div></div>' +
+      (S.settings.mail_msmtp
+        ? '<div class="hint long">发信通道：<b>服务器 msmtp（已就绪，与每日巡检邮件共用 QQ 邮箱账号，无需填写授权码）</b>。下方服务器/授权码设置仅在迁移服务器时使用。</div>'
+        : '<div class="hint long">发信通道：<b>应用内 SMTP</b>（当前服务器未检测到 msmtp，需要在下方填写邮箱授权码才能发信）。</div>') +
+      '<div class="form-row"><div class="form-field"><label>发件服务器</label><input type="text" id="nfHost" value="' + esc(S.settings.smtp_host || 'smtp.qq.com') + '"></div>' +
+      '<div class="form-field"><label>端口（SSL）</label><input type="number" id="nfPort" min="1" value="' + (S.settings.smtp_port || 465) + '"></div></div>' +
+      '<div class="form-field"><label>发件邮箱（留空 = 直接用收件邮箱发）</label><input type="text" id="nfUser" value="' + esc(S.settings.smtp_user || '') + '" placeholder="一般留空即可"></div>' +
+      '<div class="form-field"><label>邮箱授权码（备用通道' + (S.settings.smtp_pass_set ? '，已设置，留空则不修改' : '，服务器已配 msmtp 时无需填写') + '）</label>' +
+      '<input type="password" id="nfPass" autocomplete="off" placeholder="' +
+      (S.settings.smtp_pass_set ? '已设置 ●●●●●●●●' : '服务器有 msmtp 时无需填写；否则填 QQ 邮箱授权码') + '"></div>' +
+      '<div class="hint long">当前状态：<b>' + (S.settings.mail_ready
+        ? ('已就绪（' + (S.settings.mail_msmtp ? '服务器 msmtp 通道' : '应用内 SMTP') + '，有新的待办会自动发邮件）')
+        : '未就绪（服务器无 msmtp 且未填授权码）') + '</b>' +
+      (S.settings.mail_last_error ? '<br>最近一次发送失败：' + esc(S.settings.mail_last_error) : '') + '</div>' +
+      '<div class="card-actions"><button class="btn primary small" id="nfSave">保存设置</button>' +
+      '<button class="btn small" id="nfTest">发送测试邮件</button></div></div>';
     html += '<div class="section-title">成员管理</div>';
     html += '<div class="card">';
     html += paged('settings_members', S.members || [], function (m) {
@@ -2197,6 +2683,41 @@
     $('#stRefundSave').onclick = function () {
       var val = document.querySelector('input[name=stRefund]:checked').value === '1';
       act('parent:set_setting', { key: 'cost_refund', value: val }).then(function (res) { if (res.ok) { toast('已保存'); refresh(); } });
+    };
+    var aiSave = $('#stAiSave');
+    if (aiSave) aiSave.onclick = function () {
+      var en = document.querySelector('input[name=stAi]:checked').value === '1';
+      act('parent:set_setting', { key: 'ai_review_enabled', value: en }).then(function (res) { if (res.ok) { toast(en ? 'AI 自动审核已开启' : 'AI 自动审核已关闭'); refresh(); } });
+    };
+    // v25：待办邮件通知（保存 / 测试邮件）
+    var nfSave = $('#nfSave');
+    if (nfSave) nfSave.onclick = function () {
+      var p = {
+        enabled: ($('#nfEnabled') || {}).value === '1',
+        email: ($('#nfEmail') || {}).value || '',
+        host: ($('#nfHost') || {}).value || 'smtp.qq.com',
+        port: ($('#nfPort') || {}).value || '465',
+        user: ($('#nfUser') || {}).value || ''
+      };
+      var pw = ($('#nfPass') || {}).value || '';
+      if (pw) p.pass = pw;   // 留空 = 不修改已保存的授权码
+      nfSave.disabled = true;
+      act('parent:set_notify', p).then(function (res) {
+        nfSave.disabled = false;
+        if (res.ok) {
+          toast(res.ready ? '已保存，邮件通知已就绪' : '已保存（尚未就绪：请填写授权码）');
+          refresh();
+        }
+      });
+    };
+    var nfTest = $('#nfTest');
+    if (nfTest) nfTest.onclick = function () {
+      nfTest.disabled = true;
+      toast('正在发送测试邮件…');
+      act('parent:test_mail', {}).then(function (res) {
+        nfTest.disabled = false;
+        if (res && res.ok) toast('测试邮件已发送到 ' + res.to + '，请查收（也看看垃圾箱）');
+      });
     };
     $('#stKidPubSave').onclick = function () {
       var enabled = document.querySelector('input[name=stKidPub]:checked').value === '1';
@@ -2478,9 +2999,10 @@
         var first = kids()[0];
         if (first) IDENT.memberId = first.id;
       }
-      // v15：刷新/重开页面后成员登录态一律失效（需求：每次进入都要验证）。
-      IDENT.memberToken = '';
-      saveIdent();
+      // v16.1：删掉 v15 的「刷新即失效」——它就是「每次刷新/切页都要重输 PIN」的真凶。
+      //   现在成员登录态由 10 分钟滑动窗口管理：
+      //   · 窗口内：刷新页面 / 切标签 / 点操作（refresh 会重跑）都【不】清空
+      //   · 窗口过期：由 memberGateOpen() 判定并清理
       invalidateSlices();
       renderAll();
       // v13.1：家长模式下校验 token 是否仍有效。
@@ -2530,6 +3052,14 @@
         var dA = parseInt(kvA[1], 10) || 1;
         var stA = SLICES[kA];
         if (stA && !stA.loading) doLoad(kA, Math.max(0, stA.page + dA), false);
+        return;
+      }
+      // v26.1：接取明细内部的翻页（局部重渲染，不触发整页刷新）
+      var elD = closestEl(e.target, '[data-dpage]');
+      if (elD) {
+        if (elD.disabled) return;
+        var kvD = String(elD.getAttribute('data-dpage')).split(':');
+        detailFlip(parseInt(kvD[0], 10), parseInt(kvD[1], 10) || 1);
         return;
       }
       var el = closestEl(e.target, '[data-page]');

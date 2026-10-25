@@ -102,6 +102,15 @@ select {
   padding: 5px 12px; font-weight: 800; white-space: nowrap; font-size: 13px;
   box-shadow: var(--shadow-brand); font-variant-numeric: tabular-nums;
 }
+/* v16：成员页右上角「退出」—— 提前结束该成员的登录状态 */
+.logout-btn {
+  border: 1.5px solid var(--mil-line); background: var(--mil-surface-2); color: var(--mil-text-2);
+  border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 12.5px; font-weight: 700;
+  cursor: pointer; white-space: nowrap; min-height: 34px;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.logout-btn:hover { border-color: var(--mil-danger, #d9534f); color: var(--mil-danger, #d9534f); background: #fff; }
+.logout-btn:active { transform: scale(.97); }
 #tabs {
   max-width: 980px; margin: 0 auto; padding: 3px 12px 7px;
   display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none;
@@ -177,6 +186,7 @@ select {
 .pill.status-submitted { background: #fdf3e4; color: #96631a; }
 .pill.status-done { background: var(--soft-mint); color: #3d6b4d; }
 .pill.status-abandoned, .pill.status-expired, .pill.status-cancelled { background: #f1f2f5; color: #82868f; }
+.pill.status-rejected { background: var(--soft-red); color: #b03a35; }
 .pill.status-overdue { background: var(--soft-red); color: #b03a35; }
 .pill.deadline { background: #eaf0f4; color: #3a6076; }
 .pill.deadline.warn { background: var(--soft-red); color: #b03a35; }
@@ -290,8 +300,11 @@ select {
 .tc-desc {
   color: var(--muted); font-size: 12.5px; margin-top: 3px; line-height: 1.5;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  word-break: break-word;
+  word-break: break-word; cursor: pointer;
 }
+/* v19：点击展开完整说明（默认两行截断，列表保持紧凑）
+   兼容：用 none 而非 unset —— 老内核（Chrome 41 前）不认 unset 全局关键字 */
+.tc-desc.expanded { display: block; -webkit-line-clamp: none; overflow: visible; }
 .tc-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
 .tc-reward { font-size: 15px; font-weight: 800; color: #3d6b4d; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .tc-cost { font-size: 11.5px; font-weight: 700; color: #a85f16; font-variant-numeric: tabular-nums; }
@@ -650,6 +663,30 @@ input[type=radio], input[type=checkbox] { accent-color: var(--brand); width: 16p
 /* 多段确认消息：保留换行，提高可读性 */
 .confirm-msg { white-space: pre-line; line-height: 1.75; font-size: 13.5px; }
 
+/* v19：任务说明完整展示块（接取 / 提交弹窗共用，不截断） */
+.taskdesc-block { background: #f6f8fb; border: 1px solid #e7ebf2; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.taskdesc-label { font-size: 11.5px; font-weight: 700; color: var(--muted-2); margin-bottom: 4px; letter-spacing: .3px; }
+.taskdesc-text { font-size: 13.5px; line-height: 1.75; color: var(--ink); white-space: pre-line; word-break: break-word; }
+.taskdesc-text .std-photo { color: #3d6b4d; }
+
+/* v21：AI 审核（仅家长端可见） */
+.ai-block { background: #fbf7ef; border: 1px solid #f0e4cc; border-radius: 10px; padding: 9px 12px; margin: 8px 0; }
+.ai-block.suspect { background: #fdf6ec; border-color: #f2ddb8; }
+.ai-block.fail { background: #fdf0ef; border-color: #f3cfcc; }
+.ai-block-title { font-size: 12px; font-weight: 800; color: #96631a; margin-bottom: 3px; }
+.ai-block.fail .ai-block-title { color: #b03a35; }
+.ai-block-line { font-size: 12.5px; line-height: 1.6; color: var(--ink); }
+.ai-block-line.muted { color: var(--muted); }
+.ai-block-hint { font-size: 11.5px; color: var(--muted-2); margin-top: 3px; }
+.ai-tag { display: inline-block; background: #efe8fb; color: #6b4fa3; border-radius: 4px; padding: 0 5px; font-size: 10.5px; font-weight: 800; vertical-align: 1px; }
+/* v23：负积分（透支）展示 */
+.num.neg { color: var(--danger); }
+.neg-tag { display: inline-block; margin-left: 8px; background: var(--soft-red); color: var(--danger); border-radius: 4px; padding: 0 6px; font-size: 11px; font-weight: 800; vertical-align: 3px; }
+/* v22：历史明细——购物车未通过项划除 */
+.req-item.off { color: var(--muted-2); }
+.req-item.off .req-item-name { text-decoration: line-through; }
+.req-item.off .req-item-amt { color: var(--muted-2); font-weight: 600; }
+
 /* 备份导入预览里的手机端自适应 */
 @media (max-width: 560px) {
   .io-tag { font-size: 10.5px; padding: 4px 8px; }
@@ -687,3 +724,56 @@ input[type=radio], input[type=checkbox] { accent-color: var(--brand); width: 16p
 }
 .pin-badge.ok { color: var(--brand-deep); background: var(--soft-mint-2); }
 .pin-badge.warn { color: #a85f16; background: #fbf1e2; }
+
+/* ---------- v16.4 本周排行（非零和竞争） ---------- */
+.rank-list{display:flex;flex-direction:column;gap:2px}
+.rank-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;border:1px solid transparent;font-size:13.5px}
+.rank-row.me{background:#f7fafd;border-color:var(--line2);font-weight:700}
+.rk-pos{width:32px;text-align:center;font-weight:800;color:var(--mut2)}
+.rk-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk-score{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink)}
+.rk-sub{font-size:12px;color:var(--mut2);white-space:nowrap}
+
+/* ===== v26.1：任务「接取明细」（折叠 + 分页；不依赖 <details>/toggle，兼容 Android 10/11 老 WebView） ===== */
+[hidden] { display: none !important; }   /* 兜底：老内核或被其它 display 规则覆盖时仍能隐藏 */
+
+.task-detail { margin: 6px 0 2px; }
+.detail-toggle {
+  display: inline-block; margin: 0; border: 0; background: none; padding: 0;
+  font: inherit; font-size: 12px; line-height: 1.7; color: var(--muted-2);
+  cursor: pointer; text-align: left;
+  -webkit-appearance: none; appearance: none;
+  -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.detail-toggle:hover, .detail-toggle:active { color: var(--ink); }
+.detail-body { margin-top: 6px; }
+
+.detail-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.detail-table th {
+  text-align: left; font-weight: 600; color: var(--muted-2);
+  padding: 3px 8px 5px 0; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.detail-table td { padding: 5px 8px 5px 0; border-bottom: 1px dashed var(--line); vertical-align: middle; word-break: break-word; }
+.detail-table tr:last-child td { border-bottom: none; }
+.detail-table tr.dim td { opacity: .55; }
+.detail-table td.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+  font-size: 11.5px; color: var(--muted-2); white-space: nowrap;
+}
+/* 列宽：成员 / 状态 / 接取 / 提交 */
+.detail-table th:nth-child(1), .detail-table td:nth-child(1) { width: 26%; }
+.detail-table th:nth-child(2), .detail-table td:nth-child(2) { width: 22%; }
+.detail-table th:nth-child(3), .detail-table td:nth-child(3) { width: 26%; }
+.detail-table th:nth-child(4), .detail-table td:nth-child(4) { width: 26%; }
+
+/* 明细里的 pager 与全局 .pager 保持一致，仅收紧上边距 */
+.task-detail .pager { margin: 8px 0 0; }
+
+@media (max-width: 420px) {
+  /* 小屏优先保住"成员/状态"，把两列时间藏掉，避免横向溢出 */
+  .detail-table th:nth-child(3), .detail-table td:nth-child(3),
+  .detail-table th:nth-child(4), .detail-table td:nth-child(4) { display: none; }
+  .detail-table th:nth-child(1), .detail-table td:nth-child(1) { width: 55%; }
+  .detail-table th:nth-child(2), .detail-table td:nth-child(2) { width: 45%; }
+}

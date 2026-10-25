@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1C1C24">
+<title>使用指南 · 家庭任务积分乐园</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236ea87d'/%3E%3Cstop offset='1' stop-color='%234f8160'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%231C1C24'/%3E%3Cpath d='M32 10l6.4 15.6L54 32l-15.6 6.4L32 54l-6.4-15.6L10 32l15.6-6.4z' fill='url(%23g)'/%3E%3C/svg%3E">
+<style>
+:root{
+  --mil-black:#1C1C24; --mil-surface:#26262e; --mil-line:#3a3a44; --mil-text:#e8e8ee; --mil-text-2:#a0a0ad;
+  --bg:#f2f3f5; --card:#fff; --ink:#1a1c22; --ink-2:#3a3e48; --muted:#6e7280;
+  --line:#e8e9ee; --brand:#649C74; --brand-2:#4f8160; --brand-deep:#3d6b4d;
+  --grad:linear-gradient(135deg,#6ea87d 0%,#4f8160 100%);
+  --warn:#d17b28; --danger:#c0453f; --soft-mint:#e9f2ec; --soft-orange:#fdf3e4; --soft-red:#fbeceb; --soft-blue:#eaf0f4;
+  --radius:14px; --shadow:0 6px 18px rgba(20,22,28,.09); --shadow-sm:0 2px 6px rgba(20,22,28,.07);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15.5px;line-height:1.78;-webkit-font-smoothing:antialiased}
+
+/* ---------- 顶栏 ---------- */
+.top{position:sticky;top:0;z-index:20;background:var(--mil-black);color:var(--mil-text);
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px max(14px,calc((100vw - 820px)/2));border-bottom:1px solid var(--mil-line)}
+.top .brand{display:flex;align-items:center;gap:9px;min-width:0}
+.top .logo{width:30px;height:30px;border-radius:8px;background:var(--grad);display:grid;place-items:center;
+  font-weight:800;font-size:15px;color:#fff;flex:none}
+.top .name{font-weight:800;font-size:15px;white-space:nowrap}
+.top .sub{font-size:11.5px;color:var(--mil-text-2);white-space:nowrap}
+.top a.back{flex:none;color:#fff;text-decoration:none;font-size:13px;font-weight:700;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
+  padding:7px 12px;border-radius:9px}
+.top a.back:hover{background:rgba(255,255,255,.2)}
+
+/* ---------- Hero ---------- */
+.hero{background:linear-gradient(160deg,#23232b 0%,#1C1C24 100%);color:var(--mil-text);
+  padding:34px max(18px,calc((100vw - 820px)/2)) 30px}
+.hero .kick{display:inline-block;font-size:11.5px;font-weight:800;letter-spacing:.14em;
+  color:#9fd3ad;border:1px solid rgba(159,211,173,.35);border-radius:99px;padding:3px 12px;margin-bottom:14px}
+.hero h1{margin:0 0 10px;font-size:27px;line-height:1.3;letter-spacing:.01em}
+.hero p{margin:0;color:var(--mil-text-2);font-size:14.5px;max-width:640px}
+.hero p b{color:#cfe9d6}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:22px;max-width:640px}
+.stat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 10px;text-align:center}
+.stat .n{font-size:22px;font-weight:800;color:#9fd3ad;line-height:1.2}
+.stat .n small{font-size:12px;margin-left:2px;color:var(--mil-text-2);font-weight:600}
+.stat .l{font-size:11.5px;color:var(--mil-text-2);margin-top:3px}
+
+/* ---------- 目录 chips ---------- */
+.toc{position:sticky;top:51px;z-index:15;background:rgba(242,243,245,.94);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap;
+  padding:9px max(14px,calc((100vw - 820px)/2));scrollbar-width:none}
+.toc::-webkit-scrollbar{display:none}
+.toc a{display:inline-block;color:var(--ink-2);text-decoration:none;font-size:12.5px;font-weight:700;
+  background:#fff;border:1px solid var(--line);border-radius:99px;padding:5px 12px;margin-right:7px}
+.toc a:hover{border-color:var(--brand);color:var(--brand-deep)}
+
+/* ---------- 正文 ---------- */
+.wrap{max-width:820px;margin:0 auto;padding:20px 16px 70px}
+section.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow-sm);
+  padding:22px 20px;margin-bottom:16px;scroll-margin-top:96px}
+h2{margin:0 0 14px;font-size:19px;line-height:1.4;display:flex;align-items:center;gap:9px}
+h2 .num{flex:none;width:26px;height:26px;border-radius:8px;background:var(--soft-mint);
+  color:var(--brand-deep);font-size:13.5px;font-weight:800;display:grid;place-items:center}
+h3{margin:18px 0 8px;font-size:15.5px}
+p{margin:0 0 11px;color:var(--ink-2)}
+b{color:var(--ink)}
+.hl{background:linear-gradient(transparent 62%,rgba(100,156,116,.28) 62%);font-weight:800;color:var(--ink)}
+.quote{border-left:3px solid var(--brand);background:var(--soft-mint);border-radius:0 10px 10px 0;
+  padding:12px 14px;margin:12px 0;font-size:14.5px;color:var(--ink-2)}
+.quote b{color:var(--brand-deep)}
+.tip{background:var(--soft-orange);border:1px solid #f3e1c6;border-radius:10px;padding:11px 13px;
+  font-size:14px;color:#8a5a1c;margin:12px 0}
+.tip b{color:#8a5a1c}
+
+/* ---------- 表格 ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:13.5px;margin:10px 0 6px}
+.tbl th{background:#f6f7f9;color:var(--muted);font-weight:700;font-size:12px;text-align:left;
+  padding:8px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:8px 9px;border-bottom:1px solid #f0f1f4;vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl .gain{font-weight:800;color:var(--brand-deep);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tag{display:inline-block;font-size:11px;font-weight:800;border-radius:5px;padding:1px 7px;white-space:nowrap}
+.tag.daily{background:var(--soft-mint);color:var(--brand-deep)}
+.tag.week{background:var(--soft-blue);color:#3d5a76}
+.tag.free{background:#f1edf9;color:#6b4fa3}
+.cat{margin-top:16px}
+.cat .cat-h{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;color:var(--ink);margin-bottom:4px}
+.cat .cat-h i{width:8px;height:8px;border-radius:2px;flex:none}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ---------- 注意事项 ---------- */
+.notice{background:var(--soft-red);border:1px solid #f0ccc9;border-left:4px solid var(--danger);
+  border-radius:0 var(--radius) var(--radius) 0;box-shadow:none}
+.notice h2 .num{background:#f7dbd9;color:var(--danger)}
+.notice p{color:#6d2b27}
+.notice b{color:#5a1f1c}
+.notice .rule-big{font-size:15.5px;font-weight:800;color:var(--danger);margin:6px 0 10px}
+.notice .quote{background:#fff;border-left-color:var(--danger)}
+.notice .quote b{color:var(--danger)}
+.danger-em{color:var(--danger);font-weight:800}
+
+/* ---------- 结尾 ---------- */
+.end{text-align:center;padding:26px 10px 6px}
+.end .line{font-size:16px;color:var(--ink-2)}
+.end .big{font-size:19px;font-weight:800;color:var(--ink);margin-top:8px;line-height:1.6}
+.foot{max-width:820px;margin:6px auto 0;padding:0 16px 40px;color:#9296a2;font-size:12px;text-align:center}
+.topbtn{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:30;
+  width:42px;height:42px;border-radius:50%;border:none;background:var(--mil-black);color:#fff;
+  font-size:18px;box-shadow:var(--shadow);cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s}
+.topbtn.show{opacity:1;pointer-events:auto}
+@media(max-width:420px){
+  .hero h1{font-size:23px}
+  .stats{grid-template-columns:repeat(3,1fr);gap:8px}
+  .stat .n{font-size:19px}
+  section.card{padding:18px 15px}
+  h2{font-size:17.5px}
+  body{font-size:15px}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="logo">家</span>
+    <div>
+      <div class="name">家庭任务积分乐园</div>
+      <div class="sub">使用指南 · 孩子版</div>
+    </div>
+  </div>
+  <a class="back" href="/">返回应用</a>
+</header>
+
+<div class="hero">
+  <span class="kick">使用指南</span>
+  <h1>你的积分，你的选择</h1>
+  <p>这套系统不是"奖励机"，是你自己的<b>工资卡</b>与<b>预算表</b>。你做多少事、做得多好、怎么花、存不存得住——全由你决定。看懂下面这些，你就比大多数人会用它。</p>
+  <div class="stats">
+    <div class="stat"><div class="n">765<small>分</small></div><div class="l">每日满勤净赚</div></div>
+    <div class="stat"><div class="n">1<small>%</small></div><div class="l">余额每天利息</div></div>
+    <div class="stat"><div class="n">+1400<small>分</small></div><div class="l">连续 7 天奖励</div></div>
+  </div>
+</div>
+
+<nav class="toc">
+  <a href="#c1">认清积分</a>
+  <a href="#c2">每天怎么开始</a>
+  <a href="#c3">一次过</a>
+  <a href="#c4">让积分长大</a>
+  <a href="#c5">花钱的学问</a>
+  <a href="#c6">自己定任务</a>
+  <a href="#c7">排行榜</a>
+  <a href="#c8">三个场景</a>
+  <a href="#notice">注意事项</a>
+</nav>
+
+<main class="wrap">
+
+  <!-- 一 -->
+  <section class="card" id="c1">
+    <h2><span class="num">1</span>先认清：积分是什么</h2>
+    <p>积分只有一个来源：<b>你自己挣的</b>。也只有三个去向——</p>
+    <div class="scroll-x">
+      <table class="tbl">
+        <tr><th style="width:88px">从哪来</th><th>怎么来</th></tr>
+        <tr><td><b>做事</b></td><td>完成任务（大厅里的每日 / 每周 / 专项）</td></tr>
+        <tr><td><b>坚持</b></td><td>同一个每日任务连续 7 天 → <span class="gain">+1400 分</span></td></tr>
+        <tr><td><b>积累</b></td><td>余额每天生 <span class="gain">1%</span> 利息（躺着也能长，但余额为负时不生息）</td></tr>
+      </table>
+    </div>
+    <p><b>它不是凭空发的</b>——每一分都对应你做过的事。所以花的时候，你花的是自己的工夫，不是别人的恩赐。</p>
+  </section>
+
+  <!-- 二 -->
+  <section class="card" id="c2">
+    <h2><span class="num">2</span>每天怎么开始：先投入，再收获</h2>
+    <p>流程只有四步：<b>大厅 → 接取 → 做完 → 提交证据</b>。</p>
+    <p>关键在第二步：<b>接取要扣"接取消耗"，这是你的参与成本。</b></p>
+    <div class="quote">
+      <b>算账示例</b>：接「自主完成作业」扣 <b>11 分</b>，完成后奖励 <b>220 分</b> → 你<span class="hl">净赚 209 分</span>。<br>
+      接「预习 / 复习」扣 3 分、奖励 75 分 → 净赚 72 分。<br>
+      <b>奖励 − 消耗 = 你真正赚到的钱。</b>
+    </div>
+    <div class="scroll-x">
+      <table class="tbl">
+        <tr><th>类型</th><th>任务</th><th class="num">奖励</th><th class="num">接取消耗</th><th class="num">实际净赚</th></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>每日签到</td><td class="num">30</td><td class="num">0</td><td class="gain">30 <span class="tag free">免审</span></td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>自主完成作业</td><td class="num">220</td><td class="num">11</td><td class="gain">209</td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>课外阅读 30 分钟</td><td class="num">110</td><td class="num">5</td><td class="gain">105</td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>每日运动</td><td class="num">110</td><td class="num">5</td><td class="gain">105</td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>兴趣练习</td><td class="num">110</td><td class="num">5</td><td class="gain">105</td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>错题讲解</td><td class="num">75</td><td class="num">3</td><td class="gain">72</td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>预习 / 复习</td><td class="num">75</td><td class="num">3</td><td class="gain">72</td></tr>
+        <tr><td><span class="tag daily">每天</span></td><td>主动做家务</td><td class="num">70</td><td class="num">3</td><td class="gain">67</td></tr>
+        <tr><td><span class="tag week">每周</span></td><td>按时作息</td><td class="num">550</td><td class="num">27</td><td class="gain">523</td></tr>
+        <tr><td><span class="tag week">每周</span></td><td>整理自己房间</td><td class="num">550</td><td class="num">27</td><td class="gain">523</td></tr>
+        <tr><td><span class="tag week">每周</span></td><td>成绩进步</td><td class="num">1500</td><td class="num">75</td><td class="gain">1425</td></tr>
+      </table>
+    </div>
+    <p><b>一个重要的判断</b>：每天 8 个每日任务全做完，<span class="hl">净赚约 765 分</span>；加上每周和专项，一周轻松过万。</p>
+    <p><b>但不要贪多</b>——选了做不完的任务，超时作废时<b>接取消耗不退</b>，那才是真的亏。<b>先选你有把握做完的，再考虑多接。</b></p>
+    <div class="tip">⏱ <b>时限提醒</b>：接取后 <b>3 小时内</b>必须提交，超时任务作废、消耗不退。接了就得惦记着。</div>
+  </section>
+
+  <!-- 三 -->
+  <section class="card" id="c3">
+    <h2><span class="num">3</span>怎么让一件事一次过</h2>
+    <p>提交证据时记住三条：</p>
+    <p><b>1. 拍清楚</b>——照片要能一眼看出"事情确实做了"（别拍糊、别拍无关的东西）<br>
+       <b>2. 说明白</b>——一句话写清你做了什么、做到什么程度<br>
+       <b>3. 最多 6 个附件</b>（照片或 PDF 都行）</p>
+    <p>提交后由家长审核。<b>按标准做好的，很快就能通过；不符合的会被打回来</b>，打回会附上具体意见——<b>这是给你改进的机会，不是失败</b>。但注意：<b>同一个任务被打回 3 次会作废，消耗不退</b>，所以看清楚了再交。</p>
+    <div class="quote">这项能力比你想象的更重要：<b>"证明自己真的做到了"</b>——以后升学面试、比赛答辩、工作汇报，用的都是同一套本事。</div>
+  </section>
+
+  <!-- 四 -->
+  <section class="card" id="c4">
+    <h2><span class="num">4</span>让积分自己长大：两个小心机</h2>
+    <p><b>① 利息（1% / 天）</b>：余额 3000 分，放一周不动，会多出约 <span class="gain">210 分</span>。钱在账户里不是死的——<b>攒着也有回报</b>。所以"全部花光"往往不是最优解。</p>
+    <p><b>② 连续 7 天奖励（+1400 分）</b>：挑<b>一个</b>每日任务，连续 7 天完成 → 一次性 <span class="gain">+1400</span>。断一天就重新算。<b>选那个你天天都做得到的</b>（签到、运动、阅读都行），比选"看起来最赚"的更划算。</p>
+    <div class="quote">这两条合起来就是一件大事：<b>复利和坚持</b>。开始时慢，越往后越快。</div>
+  </section>
+
+  <!-- 五 -->
+  <section class="card" id="c5">
+    <h2><span class="num">5</span>花钱的学问：限额不是"限制"，是"计划"</h2>
+    <p>兑换清单按用途分成了几类：</p>
+
+    <div class="cat">
+      <div class="cat-h"><i style="background:#649C74"></i>自由支配金</div>
+      <div class="scroll-x"><table class="tbl">
+        <tr><th>兑换项</th><th class="num">花费</th><th>限额</th></tr>
+        <tr><td>零花钱 50 元</td><td class="num">6000</td><td>每月 2 次</td></tr>
+        <tr><td>零花钱 100 / 200 / 500 元</td><td class="num">11000 / 20500 / 48000</td><td>每月各 1 次</td></tr>
+      </table></div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-h"><i style="background:#3d5a76"></i>自我投资</div>
+      <div class="scroll-x"><table class="tbl">
+        <tr><th>兑换项</th><th class="num">花费</th><th>限额</th></tr>
+        <tr><td>报名一门兴趣课 / 网课</td><td class="num">15000</td><td>每月 1 次</td></tr>
+        <tr><td>买书（自选，100 元内）</td><td class="num">10000</td><td>每月 1 次</td></tr>
+        <tr><td>文具升级（300 元内）</td><td class="num">30000</td><td>每月 3 次</td></tr>
+      </table></div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-h"><i style="background:#c9566e"></i>社交体验</div>
+      <div class="scroll-x"><table class="tbl">
+        <tr><th>兑换项</th><th class="num">花费</th><th>限额</th></tr>
+        <tr><td>和同学外出（电影/聚餐，包接送 + 50 元报销）</td><td class="num">8000</td><td>每月 1 次</td></tr>
+        <tr><td>一次短途旅行（限假期，自己规划，家长陪同）</td><td class="num">30000</td><td>每月 1 次</td></tr>
+        <tr><td>兴趣装备（球鞋/乐器/护具，≤300 元）</td><td class="num">30000</td><td>每月 1 次</td></tr>
+        <tr><td>去同学家玩（限家里，包接送 + 30 元报销）</td><td class="num">5000</td><td>每周 1 次</td></tr>
+      </table></div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-h"><i style="background:#6b4fa3"></i>数字时间</div>
+      <div class="scroll-x"><table class="tbl">
+        <tr><th>兑换项</th><th class="num">花费</th><th>限额</th></tr>
+        <tr><td>游戏 / 短视频 1 小时</td><td class="num">2200</td><td><b>每周 6 次</b></td></tr>
+        <tr><td>游戏 / 短视频 3 小时（限周末）</td><td class="num">3800</td><td><b>每周 2 次</b></td></tr>
+        <tr><td>看电视 0.5 小时</td><td class="num">200</td><td><b>每天 3 次</b></td></tr>
+        <tr><td>看电视 0.5 小时（限周末）</td><td class="num">150</td><td>每周 6 次</td></tr>
+        <tr><td>游戏内购（≤50 元）</td><td class="num">6000</td><td>每月 1 次</td></tr>
+      </table></div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-h"><i style="background:#d17b28"></i>特权与自主</div>
+      <div class="scroll-x"><table class="tbl">
+        <tr><th>兑换项</th><th class="num">花费</th><th>限额</th></tr>
+        <tr><td>自主安排一天（免家庭安排）</td><td class="num">20000</td><td>每月 1 次</td></tr>
+        <tr><td>家庭决策「一票否决权」（具体事项）</td><td class="num">10000</td><td>每月 1 次</td></tr>
+      </table></div>
+    </div>
+
+    <div class="cat">
+      <div class="cat-h"><i style="background:#3a3e48"></i>特殊商品</div>
+      <div class="scroll-x"><table class="tbl">
+        <tr><th>兑换项</th><th class="num">花费</th><th>限额</th></tr>
+        <tr><td>高配手机一部（6000 元内）</td><td class="num"><b>500000</b></td><td>每月 1 次</td></tr>
+        <tr><td>遥控车（300 元内）</td><td class="num">25000</td><td>每月 1 次</td></tr>
+      </table></div>
+    </div>
+
+    <p style="margin-top:14px"><b>限额是什么意思？</b>比如游戏 1 小时"每周 6 次"——<b>这周用完了，就真的没有了</b>，下周才重置。它不是在防你，是在帮你<b>做预算</b>：一周就这么多，你想怎么分配？</p>
+    <p><b>两个实用的花法</b>：<br>
+      · <b>购物车</b>：想换几样东西，一起加进去提交，家长一次确认，省事。<br>
+      · <b>自由支配</b>：清单里没有的，可以直接填一个数字申请（比如"这周五晚上想多看半小时"）。</p>
+    <div class="tip">💳 <b>关于透支</b>：余额不够也能提交申请——<b>但那是向未来的自己借钱</b>。透支后余额变负（页面显示红色"透支中"），而且负余额不生利息。<b>借了要还，别养成习惯。</b></div>
+    <div class="quote">花之前先问自己一句：<b>"这周我最想要的是什么？"</b> 想清楚了再动手，比看到就换更划算。</div>
+  </section>
+
+  <!-- 六 -->
+  <section class="card" id="c6">
+    <h2><span class="num">6</span>自己当一次"设计者"</h2>
+    <p>清单里的任务不够用？你可以<b>自己发布任务</b>：</p>
+    <p>· 你定内容、定奖励（比如"每天练字 20 分钟，奖励 200 分"）<br>
+       · 提交给家长审核；<b>通过后扣发布费（奖励的 5%）</b><br>
+       · 任务只发给你自己——<b>自己定的目标，自己接、自己完成</b></p>
+    <div class="quote">这是最考验人的一种玩法：<b>给自己布置作业，还主动做完。</b> 能把这件事做成的人，以后没什么事做不成。</div>
+  </section>
+
+  <!-- 七 -->
+  <section class="card" id="c7">
+    <h2><span class="num">7</span>排行榜的正确用法</h2>
+    <p>首页有「本周排行」——<b>只排名次、不抢别人分</b>（别人的分不会因为你在前面而变少）。</p>
+    <p><b>用它的正确方式</b>：看"我比上周多了多少"，而不是"我又被谁超过了"。<br>它是镜子，不是赛道。</p>
+  </section>
+
+  <!-- 八 -->
+  <section class="card" id="c8">
+    <h2><span class="num">8</span>三个常见场景，照着做就行</h2>
+    <p><b>场景 1：这周我想换满游戏时间</b><br>先算账：1 小时券 2200 × 6 次 = 13200。周一就把这周任务排一排，先做<b>净赚高又稳的</b>（作业、运动、阅读），周末兑换时余额就位。</p>
+    <p><b>场景 2：我想攒钱换手机（50 万）</b><br>设目标：每周存 8000，约 <b>63 周</b>（一年出头）。<b>每周固定先"存"再"花"</b>，进度条会替你说话。中途的零花钱换不换？问自己：<b>离目标晚了多久</b>，再决定。</p>
+    <p><b>场景 3：我被打了回来</b><br>先看反馈说了什么（是照片不清楚，还是做的不符合标准），<b>改完再交</b>。别急着重复提交同一张照片——那只会再被打回一次。</p>
+  </section>
+
+  <!-- 注意事项 -->
+  <section class="card notice" id="notice">
+    <h2><span class="num">!</span>注意事项</h2>
+    <p><b>一、不投机，不骗分。</b></p>
+    <p class="rule-big">对滥用、乱用、投机取巧、骗取积分的行为——发现一次，五倍扣分。</p>
+    <p>什么叫投机？摆拍、重复交同一张照片、做样子应付、把别人做的事算成自己的……<b>这些都不算"做到"，只算"想蒙过去"。</b>系统里的每一分，本该对应你真做过的事；<b>糊弄来的分，最后糊弄的是你自己。</b></p>
+    <p style="margin-top:16px"><b>二、规则最终由家长解释。</b></p>
+    <p>所有任务和兑换内容，<b>最终解释权归家长</b>；家长有权按照你的实际表现随时调整——</p>
+    <div class="quote"><b>进步越大，要求越宽松；退步越大，要求越严格。</b></div>
+    <p>这句话反过来读，就是一条好消息：<b>规则是活的，而开关在你手里。</b>你越靠谱，你的空间就越大。</p>
+  </section>
+
+  <!-- 结尾 -->
+  <div class="end">
+    <div class="line">积分迟早会花完，但<b>算账、取舍、坚持、证明自己</b>这几样东西，会一直留在你身上。</div>
+    <div class="big">这套系统真正想教你的，<br>从来不是怎么攒分——是怎么管好自己的事。</div>
+  </div>
+
+</main>
+
+<div class="foot">本说明基于 your-domain.example 当前版本（2026-10-18）的功能与清单编写；<br>任务、兑换项、费率如有调整，以页面实际显示为准。</div>
+
+<button class="topbtn" id="toTop" aria-label="回到顶部">↑</button>
+
+<script>
+(function () {
+  var btn = document.getElementById('toTop');
+  window.addEventListener('scroll', function () {
+    if (window.scrollY > 600) btn.classList.add('show');
+    else btn.classList.remove('show');
+  }, { passive: true });
+  btn.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+</body>
+</html>
